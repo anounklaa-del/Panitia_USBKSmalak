@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+    background-color: #f4f6fa;
+    color: #131c31;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  button:not(:disabled),
+  select:not(:disabled),
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  a:focus-visible {
+    outline: 2px solid #1f3864;
+    outline-offset: 1px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+.print-only-root {
+  display: none;
+}
+
+/* Native browser print overrides so ALL selected print sheets render cleanly at 1:1 mm scale */
+@media print {
+  html,
+  body {
+    width: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .screen-only,
+  .no-print {
+    display: none !important;
+  }
+  .print-only-root {
+    display: block !important;
+    zoom: 1 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .print-sheet-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    border: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+  .print-sheet-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}

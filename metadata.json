@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Kartu PAS SMAN 1 ALALAK — Prepress Studio",
+  "description": "Studio pracetak presisi kartu ujian PAS SMAN 1 ALALAK dengan jadwal Paste November, bleed 3mm, crop \u0026 fold marks, pratinjau 3D, ekspor PDF/X-1a CMYK berprofil ICC, berkas berlapis, dan arsip terstruktur.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

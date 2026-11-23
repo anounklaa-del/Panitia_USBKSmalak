@@ -1,0 +1,1669 @@
+import React, { useMemo, useState } from 'react';
+import {
+  CalendarCheck,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Clock,
+  DoorOpen,
+  Eye,
+  Grid3X3,
+  Home,
+  Megaphone,
+  Pencil,
+  Printer,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  Trash2,
+  Trophy,
+  UserPlus,
+  Users,
+  X,
+  XCircle,
+} from 'lucide-react';
+import type { ScheduleRow, StudentRecord } from '../data/pasData';
+import type {
+  ProctorMatrixSession,
+  ProctorRecord,
+  ProctorStatus,
+} from '../data/proctorData';
+import type { MainWorkspaceTab } from '../types/prepress';
+import {
+  describeMatrixSession,
+  getProctorDutyList,
+  matchSubjectsForSlot,
+  PROCTOR_MATRIX_STORAGE_KEY,
+  PROCTORS_STORAGE_KEY,
+  type ProctorDutyItem,
+} from '../utils/proctorStore';
+import {
+  formatIndonesianDateLong,
+  parseStartMinutes,
+  toIsoDateKey,
+  type ExamScheduleEntry,
+} from '../utils/scheduleStore';
+import { CommitteeAvatar, type AvatarVariant } from './CommitteeAvatars';
+import type { ProctorPrintMode } from './ProctorRosterPrintRenderer';
+
+interface ProctorManagerProps {
+  proctors: ProctorRecord[];
+  matrix: ProctorMatrixSession[];
+  schedulesMap: Record<string, ScheduleRow[]>;
+  scheduleEntries: ExamScheduleEntry[];
+  students: StudentRecord[];
+  academicYear: string;
+  onAddProctor: (proctor: ProctorRecord) => void;
+  onUpdateProctor: (id: string, updated: ProctorRecord) => void;
+  onToggleProctorStatus: (id: string, nextStatus: ProctorStatus) => void;
+  onDeleteProctor: (id: string) => void;
+  onUpdateMatrixSlot: (sessionId: string, roomIdx: number, proctorCode: number | null) => void;
+  onResyncFromSchedule: () => void;
+  onResetAll: () => void;
+  onPrintProctors: (opts: {
+    mode: ProctorPrintMode;
+    proctors: ProctorRecord[];
+    matrix: ProctorMatrixSession[];
+    filterSummary?: string;
+  }) => void;
+  onNavigateTab: (tab: MainWorkspaceTab) => void;
+}
+
+type ProctorViewMode = 'list' | 'matrix';
+
+type ActiveModal =
+  | null
+  | { type: 'form'; editing?: ProctorRecord }
+  | { type: 'detail'; proctor: ProctorRecord }
+  | { type: 'matrixSlot'; session: ProctorMatrixSession; roomIdx: number }
+  | { type: 'confirmDelete'; proctor: ProctorRecord };
+
+const PAGE_SIZE = 8;
+
+const MONTH_NAMES_ID = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+const WEEKDAY_HEADERS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+
+export const ProctorManager: React.FC<ProctorManagerProps> = ({
+  proctors,
+  matrix,
+  schedulesMap,
+  scheduleEntries,
+  students,
+  academicYear,
+  onAddProctor,
+  onUpdateProctor,
+  onToggleProctorStatus,
+  onDeleteProctor,
+  onUpdateMatrixSlot,
+  onResyncFromSchedule,
+  onResetAll,
+  onPrintProctors,
+  onNavigateTab,
+}) => {
+  const [viewMode, setViewMode] = useState<ProctorViewMode>('list');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | ProctorStatus>('');
+  const [selectedDayIso, setSelectedDayIso] = useState<string>('');
+  const [selectedRoomNo, setSelectedRoomNo] = useState<string>('');
+  const [highlightedCode, setHighlightedCode] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Calendar defaults to November 2026 (where PAS Day 1 = 30 Nov 2026 starts)
+  const [calYear, setCalYear] = useState(2026);
+  const [calMonth, setCalMonth] = useState(10); // 10 = November
+  const [activeCalDateIso, setActiveCalDateIso] = useState('2026-11-30');
+
+  const [modal, setModal] = useState<ActiveModal>(null);
+  const [formCode, setFormCode] = useState<number>(38);
+  const [formNama, setFormNama] = useState('');
+  const [formNip, setFormNip] = useState('');
+  const [formStatus, setFormStatus] = useState<ProctorStatus>('Aktif');
+  const [formAvatar, setFormAvatar] = useState<AvatarVariant>('sekretaris');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const flashNotice = (msg: string) => {
+    setNotice(msg);
+    setTimeout(() => setNotice((cur) => (cur === msg ? null : cur)), 4000);
+  };
+
+  const sortedProctors = useMemo(
+    () => [...proctors].sort((a, b) => a.code - b.code),
+    [proctors],
+  );
+
+  const proctorByCode = useMemo(() => {
+    const map = new Map<number, ProctorRecord>();
+    for (const p of proctors) map.set(p.code, p);
+    return map;
+  }, [proctors]);
+
+  // Unique exam days from matrix
+  const examDays = useMemo(() => {
+    const map = new Map<string, { dayNo: number; date: string; shortDate: string }>();
+    for (const s of matrix) {
+      const iso = toIsoDateKey(s.date);
+      if (!map.has(iso)) {
+        map.set(iso, { dayNo: s.dayNo, date: s.date, shortDate: s.shortDate });
+      }
+    }
+    return [...map.entries()].map(([iso, val]) => ({ iso, ...val }));
+  }, [matrix]);
+
+  // Map each proctor code to their duties (full & filtered by selectedDayIso/selectedRoomNo)
+  const fullDutiesByCode = useMemo(() => {
+    const map = new Map<number, ProctorDutyItem[]>();
+    for (const p of proctors) {
+      map.set(p.code, getProctorDutyList(p.code, matrix, schedulesMap, undefined, undefined, students));
+    }
+    return map;
+  }, [proctors, matrix, schedulesMap, students]);
+
+  const filteredProctors = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const roomFilterNum = selectedRoomNo ? Number(selectedRoomNo) : undefined;
+
+    return sortedProctors.filter((p) => {
+      if (statusFilter && p.status !== statusFilter) return false;
+
+      if (q) {
+        const hit =
+          p.nama.toLowerCase().includes(q) ||
+          String(p.code).includes(q) ||
+          `kode ${p.code}`.includes(q) ||
+          (p.nip ?? '').toLowerCase().includes(q);
+        if (!hit) return false;
+      }
+
+      if (selectedDayIso || roomFilterNum) {
+        const matchingDuties = getProctorDutyList(
+          p.code,
+          matrix,
+          schedulesMap,
+          selectedDayIso || undefined,
+          roomFilterNum,
+          students,
+        );
+        if (matchingDuties.length === 0) return false;
+      }
+      return true;
+    });
+  }, [sortedProctors, searchQuery, statusFilter, selectedDayIso, selectedRoomNo, matrix, schedulesMap, students]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProctors.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedProctors = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredProctors.slice(start, start + PAGE_SIZE);
+  }, [filteredProctors, safePage]);
+
+  // KPI metrics
+  const kpiStats = useMemo(() => {
+    const active = proctors.filter((p) => p.status === 'Aktif').length;
+    const inactive = proctors.length - active;
+    return {
+      total: proctors.length,
+      active,
+      inactive,
+      days: examDays.length,
+    };
+  }, [proctors, examDays.length]);
+
+  const scheduleRangeInfo = useMemo(() => {
+    const dateRange =
+      examDays.length === 0
+        ? '-'
+        : examDays.length === 1
+          ? formatIndonesianDateLong(examDays[0].iso)
+          : `${examDays[0].shortDate} – ${examDays[examDays.length - 1].shortDate}`;
+
+    let minStart = Infinity;
+    let maxEndStr = '15.30';
+    let minStartStr = '08.00';
+    let maxEnd = -1;
+    for (const s of matrix) {
+      const sMin = parseStartMinutes(s.time);
+      const parts = s.time.split(/[-–—]/).map((x) => x.trim());
+      if (sMin < minStart && parts[0]) {
+        minStart = sMin;
+        minStartStr = parts[0];
+      }
+      if (parts[1]) {
+        const eMin = parseStartMinutes(parts[1]);
+        if (eMin > maxEnd) {
+          maxEnd = eMin;
+          maxEndStr = parts[1];
+        }
+      }
+    }
+    return {
+      dateRange,
+      timeRange: matrix.length > 0 ? `${minStartStr} – ${maxEndStr} WITA` : '-',
+      sessionCount: matrix.length,
+    };
+  }, [examDays, matrix]);
+
+  const isCustomized = useMemo(() => {
+    try {
+      return Boolean(
+        localStorage.getItem(PROCTORS_STORAGE_KEY) ||
+          localStorage.getItem(PROCTOR_MATRIX_STORAGE_KEY),
+      );
+    } catch {
+      return false;
+    }
+  }, [proctors, matrix]);
+
+  // Matrix filtered by selectedDayIso
+  const filteredMatrix = useMemo(() => {
+    if (!selectedDayIso) return matrix;
+    return matrix.filter((s) => toIsoDateKey(s.date) === selectedDayIso);
+  }, [matrix, selectedDayIso]);
+
+  const matrixDayGroups = useMemo(() => {
+    const groups: Array<{
+      dayNo: number;
+      dayLabel: string;
+      date: string;
+      shortDate: string;
+      iso: string;
+      sessions: ProctorMatrixSession[];
+    }> = [];
+    for (const s of filteredMatrix) {
+      const iso = toIsoDateKey(s.date);
+      let g = groups.find((x) => x.dayNo === s.dayNo);
+      if (!g) {
+        g = {
+          dayNo: s.dayNo,
+          dayLabel: s.dayLabel,
+          date: s.date,
+          shortDate: s.shortDate,
+          iso,
+          sessions: [],
+        };
+        groups.push(g);
+      }
+      g.sessions.push(s);
+    }
+    return groups;
+  }, [filteredMatrix]);
+
+  // Calendar grid for current calYear/calMonth
+  const examDateSet = useMemo(() => new Set(examDays.map((d) => d.iso)), [examDays]);
+
+  const calendarCells = useMemo(() => {
+    const firstOfMonth = new Date(calYear, calMonth, 1);
+    const startWeekday = (firstOfMonth.getDay() + 6) % 7;
+    const gridStart = new Date(calYear, calMonth, 1 - startWeekday);
+    const cells: Array<{ iso: string; day: number; inMonth: boolean }> = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      cells.push({ iso, day: d.getDate(), inMonth: d.getMonth() === calMonth });
+    }
+    return cells;
+  }, [calYear, calMonth]);
+
+  const handleShiftMonth = (delta: number) => {
+    const next = new Date(calYear, calMonth + delta, 1);
+    setCalYear(next.getFullYear());
+    setCalMonth(next.getMonth());
+  };
+
+  const handleCalendarDayClick = (iso: string) => {
+    setActiveCalDateIso(iso);
+    if (selectedDayIso === iso) {
+      setSelectedDayIso('');
+    } else if (examDateSet.has(iso)) {
+      setSelectedDayIso(iso);
+      setCurrentPage(1);
+    }
+  };
+
+  const openCreateModal = () => {
+    const nextCode =
+      sortedProctors.length > 0
+        ? Math.max(...sortedProctors.map((p) => p.code)) + 1
+        : 1;
+    setFormError(null);
+    setFormCode(nextCode);
+    setFormNama('');
+    setFormNip('');
+    setFormStatus('Aktif');
+    setFormAvatar('sekretaris');
+    setModal({ type: 'form' });
+  };
+
+  const openEditModal = (p: ProctorRecord) => {
+    setFormError(null);
+    setFormCode(p.code);
+    setFormNama(p.nama);
+    setFormNip(p.nip ?? '');
+    setFormStatus(p.status);
+    setFormAvatar(p.avatarVariant);
+    setModal({ type: 'form', editing: p });
+  };
+
+  const handleSubmitForm = (ev: React.FormEvent) => {
+    ev.preventDefault();
+    const cleanName = formNama.trim();
+    if (!cleanName) {
+      setFormError('Nama pengawas wajib diisi.');
+      return;
+    }
+    const cleanCode = Number(formCode);
+    if (!cleanCode || cleanCode < 1) {
+      setFormError('Kode pengawas harus angka positif (1, 2, 3...).');
+      return;
+    }
+
+    const editingId = modal?.type === 'form' ? modal.editing?.id : undefined;
+    const duplicateCode = proctors.some(
+      (p) => p.code === cleanCode && p.id !== editingId,
+    );
+    if (duplicateCode) {
+      setFormError(`Kode Pengawas ${cleanCode} sudah digunakan pengawas lain.`);
+      return;
+    }
+
+    if (modal?.type === 'form' && modal.editing) {
+      const updated: ProctorRecord = {
+        ...modal.editing,
+        code: cleanCode,
+        nama: cleanName,
+        nip: formNip.trim() || undefined,
+        status: formStatus,
+        avatarVariant: formAvatar,
+      };
+      onUpdateProctor(modal.editing.id, updated);
+      flashNotice(`Data pengawas Kode ${cleanCode} (${cleanName}) diperbarui.`);
+    } else {
+      const created: ProctorRecord = {
+        id: `prg-${Date.now()}`,
+        code: cleanCode,
+        nama: cleanName,
+        nip: formNip.trim() || undefined,
+        status: formStatus,
+        avatarVariant: formAvatar,
+      };
+      onAddProctor(created);
+      flashNotice(`Pengawas baru Kode ${cleanCode} (${cleanName}) ditambahkan.`);
+    }
+    setModal(null);
+  };
+
+  // Helper to get summary strings for a proctor row in Daftar Pengawas
+  const summarizeRowDuties = (code: number) => {
+    const roomFilterNum = selectedRoomNo ? Number(selectedRoomNo) : undefined;
+    const matching = getProctorDutyList(
+      code,
+      matrix,
+      schedulesMap,
+      selectedDayIso || undefined,
+      roomFilterNum,
+      students,
+    );
+    const allDuties = fullDutiesByCode.get(code) ?? matching;
+    const list = matching.length > 0 ? matching : allDuties;
+    const uniqueRooms = [...new Set(list.map((d) => d.roomLabel))];
+    const uniqueSubjects = [...new Set(list.flatMap((d) => d.subjects))];
+    const roomSummary =
+      uniqueRooms.length === 0
+        ? '-'
+        : uniqueRooms.length === 1
+          ? uniqueRooms[0]
+          : `${uniqueRooms[0]} (+${uniqueRooms.length - 1})`;
+    const subjectSummary =
+      uniqueSubjects.length === 0
+        ? 'Sesuai Jadwal PAS'
+        : uniqueSubjects.length === 1
+          ? uniqueSubjects[0]
+          : `${uniqueSubjects[0]}, +${uniqueSubjects.length - 1}`;
+
+    return {
+      totalShifts: allDuties.length,
+      filteredShifts: matching.length,
+      roomSummary,
+      roomTooltip: uniqueRooms.join(', '),
+      subjectSummary,
+      subjectTooltip: uniqueSubjects.join(', '),
+    };
+  };
+
+  const visiblePageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let start = Math.max(1, safePage - 2);
+    const end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) start = Math.max(1, end - maxButtons + 1);
+    for (let p = start; p <= end; p++) pages.push(p);
+    return pages;
+  }, [safePage, totalPages]);
+
+  const showFrom = filteredProctors.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const showTo = Math.min(filteredProctors.length, safePage * PAGE_SIZE);
+
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+      {/* Top Royal-Blue Header Banner matching Exam_Proctor_Dashboard_Interface_aa02adbf.png */}
+      <div
+        className="relative rounded-2xl px-5 sm:px-6 py-4 text-white overflow-hidden shadow-[0_6px_20px_rgba(9,47,113,0.18)]"
+        style={{
+          background: 'linear-gradient(100deg, #092F71 0%, #1046A2 55%, #0A347B 100%)',
+        }}
+      >
+        <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+          <div className="absolute -top-10 right-[18%] w-36 h-48 bg-white/[0.06] rotate-[26deg]" />
+          <div className="absolute -top-10 right-[11%] w-16 h-48 bg-white/[0.04] rotate-[26deg]" />
+          <div className="absolute -bottom-12 right-[3%] w-40 h-40 rounded-full bg-white/[0.05]" />
+        </div>
+
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-white/15 border border-white/25 backdrop-blur-xs flex items-center justify-center shrink-0 shadow-xs">
+              <ShieldCheck className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="font-display font-extrabold text-xl sm:text-2xl tracking-tight text-white">
+                Pengawas Ujian
+              </h1>
+              <p className="text-xs sm:text-[13px] italic text-[#DCE8FF] mt-0.5">
+                Kelola data pengawas ujian dengan mudah dan terstruktur
+              </p>
+            </div>
+          </div>
+
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-1.5 text-xs text-[#DCE8FF] font-medium shrink-0"
+          >
+            <button
+              type="button"
+              onClick={() => onNavigateTab('dashboard')}
+              className="flex items-center gap-1 hover:text-white transition-colors"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>Dashboard</span>
+            </button>
+            <ChevronRight className="w-3.5 h-3.5 text-white/60" />
+            <span className="text-white font-semibold">Pengawas Ujian</span>
+          </nav>
+        </div>
+      </div>
+
+      {notice && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] text-xs font-semibold shadow-2xs">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-[#059669] shrink-0" />
+            {notice}
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="p-1 rounded hover:bg-[#D1FAE5] text-[#047857]"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 4 Pastel KPI Cards matching reference */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div
+          className="rounded-2xl border border-[#BBD7FC] px-4 py-3.5 shadow-[0_3px_12px_rgba(37,99,235,0.06)] flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg, #EDF4FF 0%, #D9E9FF 100%)' }}
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/80 border border-[#BFDBFE] flex items-center justify-center text-[#1D63D8] shrink-0 shadow-2xs">
+            <Users className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="font-display font-extrabold text-2xl text-[#0F295C] tabular-nums leading-tight">
+              {kpiStats.total}
+            </div>
+            <div className="text-xs font-semibold text-[#1E3A8A]">Total Pengawas</div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-2xl border border-[#AEE7CB] px-4 py-3.5 shadow-[0_3px_12px_rgba(16,185,129,0.06)] flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg, #E8FAF1 0%, #CFF4E2 100%)' }}
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/80 border border-[#A7F3D0] flex items-center justify-center text-[#059669] shrink-0 shadow-2xs">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="font-display font-extrabold text-2xl text-[#064E3B] tabular-nums leading-tight">
+              {kpiStats.active}
+            </div>
+            <div className="text-xs font-semibold text-[#047857]">Aktif</div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-2xl border border-[#FBC4D2] px-4 py-3.5 shadow-[0_3px_12px_rgba(225,29,72,0.06)] flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg, #FFF0F3 0%, #FFDDE6 100%)' }}
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/80 border border-[#FECDD3] flex items-center justify-center text-[#E11D48] shrink-0 shadow-2xs">
+            <XCircle className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="font-display font-extrabold text-2xl text-[#881337] tabular-nums leading-tight">
+              {kpiStats.inactive}
+            </div>
+            <div className="text-xs font-semibold text-[#BE123C]">Tidak Aktif</div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-2xl border border-[#FACBA2] px-4 py-3.5 shadow-[0_3px_12px_rgba(234,88,12,0.06)] flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg, #FFF2E6 0%, #FFE3C8 100%)' }}
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/80 border border-[#FED7AA] flex items-center justify-center text-[#EA580C] shrink-0 shadow-2xs">
+            <CalendarCheck className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="font-display font-extrabold text-2xl text-[#7C2D12] tabular-nums leading-tight">
+              {kpiStats.days}
+            </div>
+            <div className="text-xs font-semibold text-[#C2410C]">Hari Pelaksanaan</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Split Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4 items-start">
+        {/* LEFT SECTION */}
+        <section className="bg-white rounded-2xl border border-[#DCE5F2] shadow-[0_4px_16px_rgba(15,23,42,0.04)] overflow-hidden">
+          {/* Header Row with View Mode Switcher */}
+          <div className="px-5 pt-4 pb-3 border-b border-[#E8EFF8] flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    viewMode === 'list'
+                      ? 'bg-[#1D4ED8] text-white shadow-2xs'
+                      : 'text-[#475569] hover:text-[#0F295C]'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  Daftar Pengawas ({proctors.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('matrix')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    viewMode === 'matrix'
+                      ? 'bg-[#1D4ED8] text-white shadow-2xs'
+                      : 'text-[#475569] hover:text-[#0F295C]'
+                  }`}
+                >
+                  <Grid3X3 className="w-3.5 h-3.5" />
+                  Matriks Tugas ({matrix.length} Sesi)
+                </button>
+              </div>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#ECFDF5] border border-[#A7F3D0] text-[10.5px] font-semibold text-[#047857]">
+                <RefreshCw className="w-3 h-3" />
+                Tersinkron ke Jadwal Ulangan
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  onResyncFromSchedule();
+                  flashNotice(
+                    'Matriks pengawas disusun ulang & disinkronkan persis dengan Jadwal Ulangan serta ruang siswa aktif.',
+                  );
+                }}
+                title="Susun ulang rotasi pengawas secara merata mengikuti Jadwal Ulangan & pembagian ruang terbaru"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#BAE6FD] bg-[#F0F9FF] hover:bg-[#E0F2FE] text-[#0369A1] text-[11px] font-semibold transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Sinkron Ulang Jadwal
+              </button>
+              {isCustomized && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResetAll();
+                    setHighlightedCode(null);
+                    setSelectedDayIso('');
+                    flashNotice('Data & matriks pengawas dikembalikan ke jadwal PAS Semester 1.');
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] hover:bg-[#EEF2F7] text-[#475569] text-[11px] font-semibold"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset Bawaan
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-all active:scale-[0.98]"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Tambah Pengawas
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onPrintProctors({
+                    mode: viewMode === 'matrix' ? 'matrix' : 'both',
+                    proctors: sortedProctors,
+                    matrix: filteredMatrix,
+                    filterSummary: selectedDayIso
+                      ? formatIndonesianDateLong(selectedDayIso)
+                      : undefined,
+                  })
+                }
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F8FAFC] text-[#0F295C] text-xs font-semibold shadow-2xs transition-colors"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                {viewMode === 'matrix' ? 'Cetak Matriks' : 'Cetak Daftar'}
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Toolbar matching Image 1 */}
+          <div className="px-5 py-3 bg-[#F8FAFC]/80 border-b border-[#E8EFF8] flex flex-wrap items-center gap-2.5">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="w-3.5 h-3.5 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Cari nama atau kode pengawas..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#2563EB]"
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as '' | ProctorStatus);
+                setCurrentPage(1);
+              }}
+              aria-label="Filter Status Pengawas"
+              className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs font-medium text-[#1E293B] focus:outline-none focus:border-[#2563EB]"
+            >
+              <option value="">Semua Status</option>
+              <option value="Aktif">Aktif</option>
+              <option value="Tidak Aktif">Tidak Aktif</option>
+            </select>
+
+            <select
+              value={selectedDayIso}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedDayIso(val);
+                if (val) {
+                  setActiveCalDateIso(val);
+                  const [, m] = val.split('-');
+                  if (m) setCalMonth(Number(m) - 1);
+                }
+                setCurrentPage(1);
+              }}
+              aria-label="Filter Hari Pelaksanaan"
+              className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs font-medium text-[#1E293B] focus:outline-none focus:border-[#2563EB]"
+            >
+              <option value="">Semua Hari Ujian ({examDays.length} hari)</option>
+              {examDays.map((d) => (
+                <option key={d.iso} value={d.iso}>
+                  Hari {d.dayNo} — {d.date}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedRoomNo}
+              onChange={(e) => {
+                setSelectedRoomNo(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Filter Ruang Ujian"
+              className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs font-medium text-[#1E293B] focus:outline-none focus:border-[#2563EB]"
+            >
+              <option value="">Semua Ruang</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((r) => (
+                <option key={r} value={String(r)}>
+                  Ruang {String(r).padStart(2, '0')}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {viewMode === 'list' ? (
+            <>
+              {/* 8-Column Proctor Roster Table matching Image 1 */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#EEF4FC] text-[#0F295C] font-bold border-b border-[#D8E4F3]">
+                      <th className="py-2.5 px-3 text-center w-12">Kode</th>
+                      <th className="py-2.5 px-3 min-w-[190px]">Nama Pengawas</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Kode / NIP</th>
+                      <th className="py-2.5 px-3 min-w-[140px]">Mata Pelajaran</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Ujian</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Ruang</th>
+                      <th className="py-2.5 px-3 text-center w-24">Status</th>
+                      <th className="py-2.5 px-3 text-center w-28">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EEF2F7]">
+                    {pagedProctors.map((p) => {
+                      const summary = summarizeRowDuties(p.code);
+                      return (
+                        <tr key={p.id} className="hover:bg-[#F7FAFF] transition-colors">
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-[#1D4ED8] tabular-nums">
+                            {String(p.code).padStart(2, '0')}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full overflow-hidden ring-1 ring-[#CBD5E1] bg-white shrink-0">
+                                <CommitteeAvatar
+                                  variant={p.avatarVariant}
+                                  className="w-full h-full"
+                                />
+                              </div>
+                              <div>
+                                <div className="font-bold text-[#0F295C]">{p.nama}</div>
+                                <div className="text-[10.5px] text-[#64748B]">
+                                  {summary.totalShifts} sesi mengawas
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11.5px] text-[#334155] whitespace-nowrap">
+                            {p.nip ? p.nip : `KODE-${String(p.code).padStart(2, '0')}`}
+                          </td>
+                          <td
+                            className="py-2.5 px-3 text-[#1E293B] font-medium truncate max-w-[180px]"
+                            title={summary.subjectTooltip}
+                          >
+                            {summary.subjectSummary}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-[#334155]">
+                            PAS Sem. 1
+                          </td>
+                          <td
+                            className="py-2.5 px-3 font-mono font-semibold text-[#0F295C] whitespace-nowrap"
+                            title={summary.roomTooltip}
+                          >
+                            {summary.roomSummary}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next: ProctorStatus =
+                                  p.status === 'Aktif' ? 'Tidak Aktif' : 'Aktif';
+                                onToggleProctorStatus(p.id, next);
+                                flashNotice(
+                                  `Status ${p.nama} diubah ke ${next}.`,
+                                );
+                              }}
+                              title="Klik untuk ubah status Aktif / Tidak Aktif"
+                              className={`inline-flex items-center justify-center min-w-[74px] px-2.5 py-1 rounded-md text-[11px] font-bold text-white transition-opacity hover:opacity-90 ${
+                                p.status === 'Aktif' ? 'bg-[#22C55E]' : 'bg-[#F59E0B]'
+                              }`}
+                            >
+                              {p.status}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setModal({ type: 'detail', proctor: p })}
+                                title="Lihat rincian jadwal mengawas"
+                                className="w-7 h-7 rounded-md bg-[#0EA5E9] hover:bg-[#0284C7] text-white flex items-center justify-center"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(p)}
+                                title="Edit data pengawas"
+                                className="w-7 h-7 rounded-md bg-[#2563EB] hover:bg-[#1D4ED8] text-white flex items-center justify-center"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModal({ type: 'confirmDelete', proctor: p })}
+                                title="Hapus pengawas"
+                                className="w-7 h-7 rounded-md bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {filteredProctors.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="py-10 px-4 text-center text-[#64748B]">
+                          Tidak ada pengawas yang sesuai dengan filter.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Footer matching Image 1 */}
+              <div className="px-5 py-3 border-t border-[#E8EFF8] bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-xs text-[#334155]">
+                  Menampilkan{' '}
+                  <strong className="font-bold text-[#0F295C]">
+                    {showFrom} – {showTo}
+                  </strong>{' '}
+                  dari <strong className="font-bold text-[#0F295C]">{filteredProctors.length}</strong> data
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={safePage <= 1}
+                    onClick={() => setCurrentPage(1)}
+                    className="w-7 h-7 rounded-md border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] disabled:opacity-40 text-[#475569] flex items-center justify-center"
+                  >
+                    <ChevronsLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={safePage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="w-7 h-7 rounded-md border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] disabled:opacity-40 text-[#475569] flex items-center justify-center"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  {visiblePageNumbers.map((pageNo) => (
+                    <button
+                      key={pageNo}
+                      type="button"
+                      onClick={() => setCurrentPage(pageNo)}
+                      className={`w-7 h-7 rounded-md text-xs font-bold ${
+                        pageNo === safePage
+                          ? 'bg-[#2563EB] text-white border border-[#2563EB]'
+                          : 'border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#334155]'
+                      }`}
+                    >
+                      {pageNo}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="w-7 h-7 rounded-md border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] disabled:opacity-40 text-[#475569] flex items-center justify-center"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setCurrentPage(totalPages)}
+                    className="w-7 h-7 rounded-md border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] disabled:opacity-40 text-[#475569] flex items-center justify-center"
+                  >
+                    <ChevronsRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            /* MATRIKS TUGAS PENGAWAS + KETERANGAN (Matching Images 2 & 3) */
+            <div className="p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3.5 py-2.5 text-xs">
+                <div>
+                  <span className="font-bold text-[#0F295C]">
+                    Matriks Kode Pengawas PAS Semester 1 ({academicYear})
+                  </span>
+                  <span className="ml-2 text-[#64748B]">
+                    Klik sel angka untuk mengganti kode pengawas ruang, atau klik kode pada Keterangan untuk menyorot jadwalnya.
+                  </span>
+                </div>
+                {highlightedCode !== null && (
+                  <button
+                    type="button"
+                    onClick={() => setHighlightedCode(null)}
+                    className="px-2.5 py-1 rounded-md bg-[#2563EB] text-white text-[11px] font-bold"
+                  >
+                    Sorot Kode {highlightedCode} ({proctorByCode.get(highlightedCode)?.nama}) ×
+                  </button>
+                )}
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-[#CBD5E1]">
+                <table className="w-full border-collapse text-[11px]">
+                  <thead>
+                    <tr className="bg-[#FFC000] text-[#0F172A] font-bold">
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-9">
+                        NO
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-24">
+                        HARI / TGL
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-1.5 text-center w-12">
+                        JAM KE
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-24">
+                        PUKUL (WITA)
+                      </th>
+                      <th
+                        colSpan={10}
+                        className="border border-[#94A3B8] py-1 px-2 text-center bg-[#9BC2E6] text-[#0F295C]"
+                      >
+                        RUANG DAN KODE PENGAWAS
+                      </th>
+                    </tr>
+                    <tr className="bg-[#FFC000] text-[#0F172A] font-bold">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((r) => (
+                        <th key={r} className="border border-[#94A3B8] py-1 px-1.5 text-center min-w-[34px]">
+                          {r}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixDayGroups.map((grp) =>
+                      grp.sessions.map((sess, sIdx) => {
+                        const isEvenRow = sIdx % 2 === 1;
+                        const meta = describeMatrixSession(sess, scheduleEntries);
+                        return (
+                          <tr
+                            key={sess.id}
+                            className={isEvenRow ? 'bg-[#E2E8F0]/55' : 'bg-white'}
+                          >
+                            {sIdx === 0 && (
+                              <>
+                                <td
+                                  rowSpan={grp.sessions.length}
+                                  className="border border-[#CBD5E1] text-center font-bold bg-white text-[#0F295C] align-middle"
+                                >
+                                  {grp.dayNo}
+                                </td>
+                                <td
+                                  rowSpan={grp.sessions.length}
+                                  className="border border-[#CBD5E1] px-2 text-center bg-white align-middle"
+                                >
+                                  <div className="font-bold text-[#0F295C]">{grp.dayLabel}</div>
+                                  <div className="font-mono text-[10.5px] text-[#475569]">
+                                    {grp.shortDate}
+                                  </div>
+                                </td>
+                              </>
+                            )}
+                            <td className="border border-[#CBD5E1] py-1 text-center font-semibold text-[#334155]">
+                              {sess.jamKe}
+                            </td>
+                            <td
+                              className="border border-[#CBD5E1] py-1 px-1.5 text-center whitespace-nowrap"
+                              title={`${meta.subjects.join(', ') || 'Sesuai Jadwal'} (${meta.activeRoomCount} ruang aktif)`}
+                            >
+                              <div className="font-mono text-[10.5px] text-[#1E293B] font-semibold">
+                                {sess.time}
+                              </div>
+                              <div className="text-[9.5px] text-[#1D4ED8] font-medium truncate max-w-[135px] mx-auto">
+                                {meta.summaryLabel}
+                              </div>
+                            </td>
+                            {sess.rooms.map((code, rIdx) => {
+                              const roomFilterActive =
+                                selectedRoomNo && Number(selectedRoomNo) !== rIdx + 1;
+                              const isHighlighted =
+                                highlightedCode !== null && code === highlightedCode;
+                              const pInfo = code !== null ? proctorByCode.get(code) : undefined;
+                              return code === null ? (
+                                <td
+                                  key={rIdx}
+                                  onClick={() =>
+                                    setModal({ type: 'matrixSlot', session: sess, roomIdx: rIdx })
+                                  }
+                                  title={`Ruang ${String(rIdx + 1).padStart(2, '0')} (${sess.date}, ${sess.time}) — Tidak ada siswa ruang ini pada sesi ${meta.summaryLabel} (klik untuk ubah manual)`}
+                                  className="border border-[#334155] bg-[#0F172A] hover:bg-[#1E293B] cursor-pointer transition-colors"
+                                />
+                              ) : (
+                                <td key={rIdx} className="border border-[#CBD5E1] p-0 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setModal({
+                                        type: 'matrixSlot',
+                                        session: sess,
+                                        roomIdx: rIdx,
+                                      })
+                                    }
+                                    title={`Ruang ${String(rIdx + 1).padStart(2, '0')} · ${sess.date} (${sess.time})\n${meta.summaryLabel}\nKode ${code}: ${pInfo?.nama ?? 'Belum terdaftar'}`}
+                                    className={`w-full py-1 px-1 font-mono font-bold transition-colors ${
+                                      isHighlighted
+                                        ? 'bg-[#2563EB] text-white ring-2 ring-inset ring-[#FACC15]'
+                                        : roomFilterActive
+                                          ? 'text-[#CBD5E1] hover:bg-[#EFF6FF]'
+                                          : 'text-[#0F172A] hover:bg-[#DBEAFE] hover:text-[#1D4ED8]'
+                                    }`}
+                                  >
+                                    {code}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      }),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Keterangan Kode 1-37 Card matching Image 3 */}
+              <div className="rounded-xl border border-[#DCE5F2] bg-[#F8FAFC] p-4">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <h3 className="font-display font-bold text-sm text-[#0F295C]">
+                    Keterangan Kode Pengawas (1 – {sortedProctors.length})
+                  </h3>
+                  <span className="text-[11px] text-[#64748B]">
+                    Klik nama untuk menyorot posisi pada matriks
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                  {sortedProctors.map((p) => {
+                    const active = highlightedCode === p.code;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() =>
+                          setHighlightedCode((prev) => (prev === p.code ? null : p.code))
+                        }
+                        className={`flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors ${
+                          active
+                            ? 'bg-[#2563EB] text-white font-bold shadow-2xs'
+                            : 'hover:bg-white text-[#1E293B]'
+                        }`}
+                      >
+                        <span
+                          className={`font-mono font-bold w-6 text-right shrink-0 ${
+                            active ? 'text-[#FACC15]' : 'text-[#1D4ED8]'
+                          }`}
+                        >
+                          {p.code}.
+                        </span>
+                        <span className="truncate">{p.nama}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* RIGHT SIDEBAR COLUMN matching Image 1 */}
+        <aside className="space-y-4">
+          {/* Kalender Ujian */}
+          <div className="bg-white rounded-2xl border border-[#DCE5F2] shadow-[0_4px_16px_rgba(15,23,42,0.04)] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#E8EFF8] flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-[#1D4ED8]" />
+              <h3 className="font-display font-bold text-sm text-[#0F295C]">
+                Kalender Ujian
+              </h3>
+            </div>
+            <div className="p-4">
+              <div className="flex items-center justify-between bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-2.5 py-1.5 mb-3">
+                <button
+                  type="button"
+                  onClick={() => handleShiftMonth(-1)}
+                  className="w-6 h-6 rounded-md hover:bg-white text-[#475569] flex items-center justify-center"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="font-display font-bold text-xs text-[#0F295C]">
+                  {MONTH_NAMES_ID[calMonth]} {calYear}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleShiftMonth(1)}
+                  className="w-6 h-6 rounded-md hover:bg-white text-[#475569] flex items-center justify-center"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 text-center text-[10.5px] font-bold text-[#475569] mb-1.5">
+                {WEEKDAY_HEADERS.map((w) => (
+                  <div key={w}>{w}</div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-y-1 gap-x-0.5 text-center">
+                {calendarCells.map((cell) => {
+                  const hasExam = examDateSet.has(cell.iso);
+                  const isSelected = selectedDayIso === cell.iso;
+                  const isHighlightCircle =
+                    isSelected || (!selectedDayIso && activeCalDateIso === cell.iso && hasExam);
+                  return (
+                    <button
+                      key={cell.iso}
+                      type="button"
+                      onClick={() => handleCalendarDayClick(cell.iso)}
+                      title={
+                        hasExam
+                          ? `${formatIndonesianDateLong(cell.iso)} — Klik untuk filter pengawas pada tanggal ini`
+                          : formatIndonesianDateLong(cell.iso)
+                      }
+                      className={`relative h-8 flex flex-col items-center justify-center rounded-full text-xs transition-colors ${
+                        isHighlightCircle
+                          ? 'bg-[#1D4ED8] text-white font-bold shadow-xs'
+                          : cell.inMonth
+                            ? hasExam
+                              ? 'text-[#0F295C] font-bold hover:bg-[#EFF6FF]'
+                              : 'text-[#334155] hover:bg-[#F1F5F9]'
+                            : 'text-[#CBD5E1]'
+                      }`}
+                    >
+                      <span className="leading-none">{cell.day}</span>
+                      {hasExam && !isHighlightCircle && (
+                        <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedDayIso && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDayIso('');
+                    setCurrentPage(1);
+                  }}
+                  className="mt-3 w-full py-1.5 rounded-lg bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] text-[11px] font-bold"
+                >
+                  Tampilkan Semua Tanggal
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Informasi Penting (Mint Green Card) */}
+          <div className="rounded-2xl bg-[#E7F9F0] border border-[#B6EBD4] p-4 shadow-[0_3px_12px_rgba(16,185,129,0.06)]">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 rounded-lg bg-[#16A34A] text-white flex items-center justify-center shrink-0">
+                <Megaphone className="w-3.5 h-3.5" />
+              </div>
+              <h3 className="font-display font-bold text-sm text-[#064E3B]">
+                Informasi Penting
+              </h3>
+            </div>
+
+            <ul className="space-y-2.5 text-xs text-[#0F295C]">
+              <li className="flex items-start gap-2">
+                <span className="w-4 h-4 rounded-full bg-[#16A34A] text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                </span>
+                <span className="leading-snug font-medium">
+                  Jadwal Ujian: <strong>{scheduleRangeInfo.dateRange}</strong> ({scheduleRangeInfo.sessionCount} sesi aktif)
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-4 h-4 rounded-full bg-[#16A34A] text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                </span>
+                <span className="leading-snug font-medium">
+                  Pastikan pengawas hadir tepat waktu ({scheduleRangeInfo.timeRange})
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-4 h-4 rounded-full bg-[#16A34A] text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                </span>
+                <span className="leading-snug font-medium">
+                  Gunakan ID Card Panitia &amp; Kode Pengawas (01–{String(sortedProctors.length).padStart(2, '0')})
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Sukses Ulangan Trophy Banner */}
+          <div
+            className="relative rounded-2xl p-4 text-white overflow-hidden shadow-[0_6px_18px_rgba(16,70,162,0.22)]"
+            style={{
+              background: 'linear-gradient(125deg, #1E64D8 0%, #10429C 60%, #092B6B 100%)',
+            }}
+          >
+            <div className="absolute -right-4 -bottom-5 w-24 h-24 rounded-full bg-white/10 pointer-events-none" />
+            <div className="relative z-10 flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
+                <Trophy className="w-6 h-6 text-[#FACC15]" />
+              </div>
+              <div>
+                <div className="font-display font-extrabold text-base leading-tight text-white">
+                  Sukses Ulangan,
+                </div>
+                <div className="font-display font-extrabold text-sm text-[#FACC15] italic mt-0.5">
+                  Raih Prestasi Terbaik!
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {/* ADD / EDIT PROCTOR MODAL */}
+      {modal?.type === 'form' && (
+        <div
+          className="fixed inset-0 z-50 bg-[#041434]/55 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl border border-[#DCE5F2] w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
+              <h3 className="font-display font-bold text-base text-[#0F295C]">
+                {modal.editing ? 'Edit Data Pengawas Ujian' : 'Tambah Pengawas Ujian'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="w-8 h-8 rounded-lg hover:bg-[#E2E8F0] text-[#475569] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitForm} className="p-5 space-y-3.5 text-xs">
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] font-semibold">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-[#0F295C] mb-1">Kode Pengawas</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formCode}
+                    onChange={(e) => setFormCode(Number(e.target.value) || 1)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] font-mono font-bold text-[#0F172A]"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block font-bold text-[#0F295C] mb-1">NIP (Opsional)</label>
+                  <input
+                    type="text"
+                    value={formNip}
+                    onChange={(e) => setFormNip(e.target.value)}
+                    placeholder="Kosongkan untuk pakai Kode"
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] font-mono text-[#0F172A]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#0F295C] mb-1">
+                  Nama Lengkap &amp; Gelar
+                </label>
+                <input
+                  type="text"
+                  value={formNama}
+                  onChange={(e) => setFormNama(e.target.value)}
+                  placeholder="Contoh: Fitriah, S.Pd"
+                  className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-[#0F172A]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#0F295C] mb-1">Status Tugas</label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as ProctorStatus)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-[#0F172A]"
+                  >
+                    <option value="Aktif">Aktif</option>
+                    <option value="Tidak Aktif">Tidak Aktif</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-[#0F295C] mb-1">Avatar Profil</label>
+                  <select
+                    value={formAvatar}
+                    onChange={(e) => setFormAvatar(e.target.value as AvatarVariant)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-[#0F172A]"
+                  >
+                    <option value="sekretaris">Ibu Guru (Hijab)</option>
+                    <option value="proktor">Guru Wanita</option>
+                    <option value="ketua">Bapak Guru (Berkacamata)</option>
+                    <option value="bendahara">Bapak Guru</option>
+                    <option value="teknisi">Staf / Pengawas Muda</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#E2E8F0] flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModal(null)}
+                  className="px-4 py-2 rounded-lg border border-[#CBD5E1] text-[#475569] font-semibold"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold"
+                >
+                  Simpan Pengawas
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DETAIL MODAL: Personal 9-Day Schedule for Proctor */}
+      {modal?.type === 'detail' && (
+        <div
+          className="fixed inset-0 z-50 bg-[#041434]/55 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl border border-[#DCE5F2] w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC] shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-[#BFDBFE] bg-white">
+                  <CommitteeAvatar variant={modal.proctor.avatarVariant} className="w-full h-full" />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-base text-[#0F295C]">
+                    Kode {String(modal.proctor.code).padStart(2, '0')} — {modal.proctor.nama}
+                  </h3>
+                  <p className="text-[11px] text-[#64748B]">
+                    Rincian jadwal mengawas di Ruang 01 – 10 ({fullDutiesByCode.get(modal.proctor.code)?.length ?? 0} sesi)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="w-8 h-8 rounded-lg hover:bg-[#E2E8F0] text-[#475569] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 text-xs">
+              {(fullDutiesByCode.get(modal.proctor.code) ?? []).length === 0 ? (
+                <div className="py-10 text-center text-[#64748B]">
+                  Pengawas ini belum memiliki sesi tugas pada matriks.
+                </div>
+              ) : (
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#EEF4FC] text-[#0F295C] font-bold">
+                      <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Hari</th>
+                      <th className="py-2 px-2.5 text-left border border-[#DCE5F2]">Tanggal</th>
+                      <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Jam Ke</th>
+                      <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Pukul (WITA)</th>
+                      <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Ruang</th>
+                      <th className="py-2 px-2.5 text-left border border-[#DCE5F2]">Mata Pelajaran</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(fullDutiesByCode.get(modal.proctor.code) ?? []).map((d, idx) => (
+                      <tr key={`${d.sessionId}-${d.roomNo}-${idx}`} className="hover:bg-[#F8FAFC]">
+                        <td className="py-1.5 px-2.5 text-center border border-[#E2E8F0] font-semibold">
+                          #{d.dayNo}
+                        </td>
+                        <td className="py-1.5 px-2.5 border border-[#E2E8F0] font-medium">
+                          {d.date}
+                        </td>
+                        <td className="py-1.5 px-2.5 text-center border border-[#E2E8F0]">
+                          Jam {d.jamKe}
+                        </td>
+                        <td className="py-1.5 px-2.5 text-center border border-[#E2E8F0] font-mono">
+                          {d.time}
+                        </td>
+                        <td className="py-1.5 px-2.5 text-center border border-[#E2E8F0] font-mono font-bold text-[#1D4ED8]">
+                          {d.roomLabel}
+                        </td>
+                        <td className="py-1.5 px-2.5 border border-[#E2E8F0] text-[#334155]">
+                          <div>
+                            {d.subjects.length > 0 ? d.subjects.join(', ') : 'Sesuai Jadwal Ruang'}
+                          </div>
+                          {d.classes.length > 0 && (
+                            <div className="text-[10px] text-[#64748B]">
+                              Kelas di ruang: {d.classes.join(', ')}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC] shrink-0 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setHighlightedCode(modal.proctor.code);
+                  setViewMode('matrix');
+                  setModal(null);
+                }}
+                className="px-3.5 py-2 rounded-lg bg-[#EFF6FF] hover:bg-[#DBEAFE] border border-[#93C5FD] text-[#1D4ED8] font-bold"
+              >
+                Sorot di Matriks Tugas
+              </button>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="px-4 py-2 rounded-lg bg-[#1D4ED8] text-white font-bold"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MATRIX SLOT REASSIGN MODAL */}
+      {modal?.type === 'matrixSlot' && (
+        <div
+          className="fixed inset-0 z-50 bg-[#041434]/55 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl border border-[#DCE5F2] w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
+              <div>
+                <h3 className="font-display font-bold text-base text-[#0F295C]">
+                  Atur Pengawas Ruang {String(modal.roomIdx + 1).padStart(2, '0')}
+                </h3>
+                <p className="text-[11px] text-[#64748B]">
+                  {modal.session.date} · Jam ke-{modal.session.jamKe} ({modal.session.time} WITA)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="w-8 h-8 rounded-lg hover:bg-[#E2E8F0] text-[#475569] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs">
+              {(() => {
+                const roomMatch = matchSubjectsForSlot(
+                  modal.session.date,
+                  modal.session.time,
+                  schedulesMap,
+                  modal.roomIdx + 1,
+                  students,
+                );
+                return (
+                  <div className="p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex items-start gap-2 text-[#334155]">
+                    <Clock className="w-4 h-4 text-[#2563EB] shrink-0 mt-0.5" />
+                    <div>
+                      <div>
+                        Mapel Ruang {String(modal.roomIdx + 1).padStart(2, '0')}:{' '}
+                        <strong className="text-[#0F295C]">
+                          {roomMatch.subjects.length > 0
+                            ? roomMatch.subjects.join(', ')
+                            : 'Tidak ada ujian di ruang ini pada sesi ini'}
+                        </strong>
+                      </div>
+                      {roomMatch.classes.length > 0 && (
+                        <div className="text-[10.5px] text-[#64748B] mt-0.5">
+                          Kelas peserta: {roomMatch.classes.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div>
+                <label className="block font-bold text-[#0F295C] mb-1.5">
+                  Pilih Pengawas (Kode 1 – {sortedProctors.length})
+                </label>
+                <div className="max-h-60 overflow-y-auto border border-[#E2E8F0] rounded-xl divide-y divide-[#F1F5F9]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateMatrixSlot(modal.session.id, modal.roomIdx, null);
+                      flashNotice(
+                        `Ruang ${String(modal.roomIdx + 1).padStart(2, '0')} (${modal.session.time}) dikosongkan.`,
+                      );
+                      setModal(null);
+                    }}
+                    className={`w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#F8FAFC] ${
+                      modal.session.rooms[modal.roomIdx] === null
+                        ? 'bg-[#0F172A] text-white font-bold'
+                        : 'text-[#475569]'
+                    }`}
+                  >
+                    <span>Sesi Kosong / Tidak Ada Ujian (Blok Hitam)</span>
+                    <DoorOpen className="w-3.5 h-3.5 opacity-70" />
+                  </button>
+                  {sortedProctors.map((p) => {
+                    const current = modal.session.rooms[modal.roomIdx] === p.code;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdateMatrixSlot(modal.session.id, modal.roomIdx, p.code);
+                          flashNotice(
+                            `Ruang ${String(modal.roomIdx + 1).padStart(2, '0')} (${modal.session.time}) ditugaskan ke Kode ${p.code} (${p.nama}).`,
+                          );
+                          setModal(null);
+                        }}
+                        className={`w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#EFF6FF] ${
+                          current ? 'bg-[#2563EB] text-white font-bold' : 'text-[#0F172A]'
+                        }`}
+                      >
+                        <span>
+                          <span
+                            className={`font-mono font-bold mr-2 ${
+                              current ? 'text-[#FACC15]' : 'text-[#1D4ED8]'
+                            }`}
+                          >
+                            {String(p.code).padStart(2, '0')}.
+                          </span>
+                          {p.nama}
+                        </span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            p.status === 'Aktif'
+                              ? 'bg-[#22C55E] text-white'
+                              : 'bg-[#F59E0B] text-white'
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {modal?.type === 'confirmDelete' && (
+        <div
+          className="fixed inset-0 z-50 bg-[#041434]/55 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl border border-[#DCE5F2] w-full max-w-md p-5 space-y-3 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-base text-[#0F295C]">
+                  Hapus Pengawas Kode {String(modal.proctor.code).padStart(2, '0')}?
+                </h3>
+                <p className="text-xs text-[#64748B] mt-0.5">
+                  {modal.proctor.nama} akan dihapus dari daftar pengawas ujian.
+                </p>
+              </div>
+            </div>
+            <div className="pt-2 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="px-4 py-2 rounded-lg border border-[#CBD5E1] text-xs font-semibold text-[#475569]"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteProctor(modal.proctor.id);
+                  flashNotice(`Pengawas ${modal.proctor.nama} dihapus.`);
+                  setModal(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold"
+              >
+                Ya, Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
