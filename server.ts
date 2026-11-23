@@ -42,7 +42,7 @@ interface SignedTokenPayload {
   exp: number;
 }
 
-const PORT = Number(process.env.DEFAULT_APP_PORT) || 3000;
+const PORT = Number(process.env.DEFAULT_APP_PORT) || Number(process.env.PORT) || 3000;
 const STORE_PATH = path.resolve(process.cwd(), '.pas-auth-store.json');
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -722,13 +722,28 @@ async function startServer() {
     res.status(404).json({ error: 'Endpoint API tidak ditemukan.' });
   });
 
+  // Ensure API errors always return a string error payload
+  app.use('/api', (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : 'Terjadi kesalahan internal pada server autentikasi.';
+    res.status(500).json({ error: message });
+  });
+
   if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
-      appType: 'spa',
+    const vitePromise = import('vite').then(({ createServer: createViteServer }) =>
+      createViteServer({
+        server: { middlewareMode: true, hmr: false },
+        appType: 'spa',
+      }),
+    );
+
+    app.use((req, res, next) => {
+      vitePromise
+        .then((vite) => vite.middlewares(req, res, next))
+        .catch(next);
     });
-    app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir));

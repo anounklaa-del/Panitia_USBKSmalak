@@ -45,6 +45,16 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
   const [setupLoginAs, setSetupLoginAs] = useState<UserRole>('admin');
   const [showSetupPasswords, setShowSetupPasswords] = useState(false);
 
+  const formatUiError = (err: unknown, fallback: string): string => {
+    if (err instanceof Error && err.message && err.message !== '[object Object]') {
+      return err.message;
+    }
+    if (typeof err === 'string' && err.trim() && err.trim() !== '[object Object]') {
+      return err.trim();
+    }
+    return fallback;
+  };
+
   const loadStatus = async () => {
     setStatusLoading(true);
     setStatusError(null);
@@ -53,9 +63,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
       setStatus(next);
     } catch (err) {
       setStatusError(
-        err instanceof Error
-          ? err.message
-          : 'Tidak dapat terhubung ke server autentikasi.',
+        formatUiError(err, 'Tidak dapat terhubung ke server autentikasi.'),
       );
     } finally {
       setStatusLoading(false);
@@ -65,7 +73,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
   useEffect(() => {
     void loadStatus();
   }, []);
-
 
   const handleLoginSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -82,9 +89,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
       const res = await loginWithCredentials(username.trim(), password);
       onAuthenticated(res.token, res.user);
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal masuk ke sistem.',
-      );
+      setErrorMessage(formatUiError(err, 'Gagal masuk ke sistem.'));
     } finally {
       setSubmitting(false);
     }
@@ -114,7 +119,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
       onAuthenticated(res.token, res.user);
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal mengaktifkan kredensial awal.',
+        formatUiError(err, 'Gagal mengaktifkan kredensial awal.'),
       );
       void loadStatus();
     } finally {
