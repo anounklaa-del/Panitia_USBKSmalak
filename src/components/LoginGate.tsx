@@ -238,11 +238,23 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
                   Tetapkan Kata Sandi Admin &amp; Panitia
                 </h2>
                 <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
-                  Server belum memiliki kata sandi tersimpan. Tetapkan sandi akses untuk{' '}
-                  <strong className="text-[#131C31]">admin</strong> dan{' '}
-                  <strong className="text-[#131C31]">Panitia</strong> untuk mengunci sistem (dapat
-                  di-override lewat Secrets <code className="font-mono">ADMIN_PASSCODE</code> /{' '}
-                  <code className="font-mono">PANITIA_PASSCODE</code>).
+                  {status.mode === 'static' ? (
+                    <>
+                      Pratinjau statis aktif. Tetapkan sandi akses untuk{' '}
+                      <strong className="text-[#131C31]">admin</strong> dan{' '}
+                      <strong className="text-[#131C31]">Panitia</strong> yang disimpan terenkripsi
+                      (PBKDF2) di peramban ini.
+                    </>
+                  ) : (
+                    <>
+                      Server belum memiliki kata sandi tersimpan. Tetapkan sandi akses untuk{' '}
+                      <strong className="text-[#131C31]">admin</strong> dan{' '}
+                      <strong className="text-[#131C31]">Panitia</strong> untuk mengunci sistem
+                      (dapat di-override lewat Secrets{' '}
+                      <code className="font-mono">ADMIN_PASSCODE</code> /{' '}
+                      <code className="font-mono">PANITIA_PASSCODE</code>).
+                    </>
+                  )}
                 </p>
               </div>
 
