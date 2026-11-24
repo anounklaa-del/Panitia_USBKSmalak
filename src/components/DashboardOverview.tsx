@@ -271,11 +271,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
           {/* Hero Welcome Banner */}
           <section className="xl:col-span-8 relative rounded-2xl overflow-hidden shadow-[0_4px_18px_rgba(9,44,104,0.14)] min-h-[192px] flex items-center bg-[#062458]">
-            {/* School Building Right Image */}
+            {/* School Building Right Illustration */}
             <img
-              src="/src/assets/images/sman1_alalak_building_1795448237432.jpg"
-              alt="Gedung SMA Negeri 1 Alalak"
-              className="absolute inset-0 w-full h-full object-cover object-[86%_36%]"
+              src="/assets/aistudio/Ilustrasi_Cerah_SMA_Negeri_1_Alalak_v2.png"
+              alt="Ilustrasi SMA Negeri 1 Alalak"
+              className="absolute right-0 top-0 h-full w-full sm:w-[72%] object-cover object-[50%_86%] pointer-events-none"
             />
 
             {/* Navy Gradient Scrim on Left for High-Contrast Typography */}
@@ -283,7 +283,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               className="absolute inset-0"
               style={{
                 background:
-                  'linear-gradient(95deg, #052154 0%, #09327A 44%, rgba(9,50,122,0.72) 58%, rgba(9,50,122,0.08) 78%, transparent 100%)',
+                  'linear-gradient(95deg, #052154 0%, #09327A 30%, rgba(9,50,122,0.82) 38%, rgba(9,50,122,0.12) 50%, transparent 62%)',
               }}
             />
 

@@ -139,18 +139,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
       >
         {!buildingImgError && (
           <img
-            src="/src/assets/images/sman1_alalak_building_1795448237432.jpg"
-            alt="Gedung SMA Negeri 1 Alalak"
+            src="/assets/aistudio/Ilustrasi_Cerah_SMA_Negeri_1_Alalak_v2.png"
+            alt="Ilustrasi SMA Negeri 1 Alalak"
             referrerPolicy="no-referrer"
             onError={() => setBuildingImgError(true)}
-            className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-luminosity pointer-events-none"
+            className="absolute inset-0 w-full h-full object-cover object-center opacity-35 pointer-events-none"
           />
         )}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              'linear-gradient(180deg, rgba(7,40,99,0.88) 0%, rgba(4,24,61,0.92) 100%)',
+              'linear-gradient(180deg, rgba(7,40,99,0.78) 0%, rgba(4,24,61,0.84) 100%)',
           }}
           aria-hidden="true"
         />

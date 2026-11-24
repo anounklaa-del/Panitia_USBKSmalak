@@ -439,19 +439,19 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         </div>
       )}
 
-      {/* Blended Bottom School Building Photo */}
+      {/* Blended Bottom School Building Illustration */}
       {!isCollapsedRail && (
         <div className="relative h-28 shrink-0 overflow-hidden pointer-events-none">
           <img
-            src="/src/assets/images/sman1_alalak_building_1795448237432.jpg"
-            alt="Gedung SMA Negeri 1 Alalak"
-            className="w-full h-full object-cover object-[85%_38%] scale-105"
+            src="/assets/aistudio/Ilustrasi_Cerah_SMA_Negeri_1_Alalak_v2.png"
+            alt="Ilustrasi SMA Negeri 1 Alalak"
+            className="w-full h-full object-cover object-[50%_85%]"
           />
           <div
             className="absolute inset-0"
             style={{
               background:
-                'linear-gradient(180deg, #031538 0%, rgba(3,21,56,0.62) 45%, rgba(3,21,56,0.12) 100%)',
+                'linear-gradient(180deg, #031538 0%, rgba(3,21,56,0.42) 32%, rgba(3,21,56,0.02) 70%, transparent 100%)',
             }}
           />
         </div>
