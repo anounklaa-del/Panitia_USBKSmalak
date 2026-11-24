@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
+  Bell,
   Calendar,
   CalendarDays,
   Check,
@@ -790,6 +791,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   tab: 'berita_acara' as MainWorkspaceTab,
                   icon: <FileCheck2 className="w-3.5 h-3.5 text-white" />,
                   badgeBg: 'bg-[#0D9488]',
+                },
+                {
+                  label: 'Kode Lonceng & Tata Tertib',
+                  tab: 'rules_bell' as MainWorkspaceTab,
+                  icon: <Bell className="w-3.5 h-3.5 text-white" />,
+                  badgeBg: 'bg-[#D97706]',
                 },
                 {
                   label: 'Stiker Meja & Ekspor',

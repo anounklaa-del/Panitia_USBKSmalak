@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Bell,
   Box,
   Calendar,
   CalendarDays,
@@ -108,6 +109,13 @@ export const WORKSPACE_META: Record<MainWorkspaceTab, WorkspaceRouteMeta> = {
     groupLabel: 'Perangkat Ujian',
     label: 'Berita Acara',
     shortLabel: 'Berita Acara',
+  },
+  rules_bell: {
+    id: 'rules_bell',
+    groupId: 'perangkat',
+    groupLabel: 'Perangkat Ujian',
+    label: 'Kode Lonceng & Tata Tertib',
+    shortLabel: 'Lonceng & Tatib',
   },
   export: {
     id: 'export',
@@ -253,6 +261,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       label: 'Berita Acara',
       icon: <FileCheck2 className="w-4 h-4 shrink-0" />,
       count: counts.beritaAcara,
+    },
+    {
+      id: 'rules_bell',
+      label: 'Kode Lonceng & Tatib',
+      icon: <Bell className="w-4 h-4 shrink-0" />,
+      count: 3,
     },
     {
       id: 'export',

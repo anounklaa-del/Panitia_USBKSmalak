@@ -43,6 +43,8 @@ import {
   ScheduleRosterPrintBlock,
   type SchedulePrintMode,
 } from './components/ScheduleRosterPrintRenderer';
+import { RulesAndBellPagesBlock } from './components/RulesAndBellRenderer';
+import { RulesAndBellWorkspace } from './components/RulesAndBellWorkspace';
 import { SeatingSheetPagesBlock } from './components/SeatingPlanRenderer';
 import { SeatingPlanStudio } from './components/SeatingPlanStudio';
 import { SettingsDrawer } from './components/SettingsDrawer';
@@ -66,6 +68,13 @@ import type {
   ProctorRecord,
   ProctorStatus,
 } from './data/proctorData';
+import {
+  DEFAULT_RULES_BELL_CONFIG,
+  loadRulesBellConfig,
+  saveRulesBellConfig,
+  type RulesAndBellConfig,
+  type RulesBellDocId,
+} from './data/rulesAndBellData';
 import {
   computeSheetGeometry,
   computeStickerGeometry,
@@ -283,6 +292,9 @@ export default function App() {
   const [beritaAcaraPrintRecords, setBeritaAcaraPrintRecords] = useState<
     BeritaAcaraRecord[] | null
   >(null);
+  const [rulesBellConfig, setRulesBellConfig] = useState<RulesAndBellConfig>(() =>
+    loadRulesBellConfig(),
+  );
   const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>(() => {
     try {
       const saved = localStorage.getItem('pas_school_settings_v1');
@@ -362,6 +374,19 @@ export default function App() {
       }
       return next;
     });
+  };
+
+  const updateRulesBellConfig = (patch: Partial<RulesAndBellConfig>) => {
+    setRulesBellConfig((prev) => {
+      const next = { ...prev, ...patch };
+      saveRulesBellConfig(next);
+      return next;
+    });
+  };
+
+  const resetRulesBellConfig = () => {
+    setRulesBellConfig(DEFAULT_RULES_BELL_CONFIG);
+    saveRulesBellConfig(DEFAULT_RULES_BELL_CONFIG);
   };
 
   const handleSaveBeritaAcaraOverride = (id: string, override: BeritaAcaraOverride | null) => {
@@ -866,6 +891,14 @@ export default function App() {
     [config, beritaAcaraConfig.layoutMode],
   );
 
+  const rulesBellPrintDocs: RulesBellDocId[] = useMemo(
+    () =>
+      rulesBellConfig.printScope === 'active'
+        ? [rulesBellConfig.activeDoc]
+        : ['kode_lonceng', 'tata_tertib_peserta', 'tata_tertib_pengawas'],
+    [rulesBellConfig.printScope, rulesBellConfig.activeDoc],
+  );
+
   const totalPrintPages =
     activeTab === 'sticker'
       ? printStickerIndices.length
@@ -875,7 +908,9 @@ export default function App() {
           ? printAttendancePages.length
           : activeTab === 'berita_acara'
             ? beritaAcaraPrintPages.length
-            : totalCardPrintPages;
+            : activeTab === 'rules_bell'
+              ? rulesBellPrintDocs.length
+              : totalCardPrintPages;
 
   const missingScheduleCount = useMemo(
     () =>
@@ -910,6 +945,7 @@ export default function App() {
     proctorPrintPayload,
     beritaAcaraPrintRecords,
     beritaAcaraConfig,
+    rulesBellConfig,
     beritaAcaraOverrides,
     beritaAcaraRecords,
     proctors,
@@ -984,6 +1020,16 @@ export default function App() {
   const handleBeritaAcaraPrint = (recordsToPrint: BeritaAcaraRecord[]) => {
     pendingPrintRef.current = true;
     setBeritaAcaraPrintRecords(recordsToPrint);
+  };
+
+  const handleRulesBellPrint = (scopeOverride?: 'active' | 'all') => {
+    const targetScope = scopeOverride ?? rulesBellConfig.printScope;
+    if (targetScope !== rulesBellConfig.printScope) {
+      pendingPrintRef.current = true;
+      updateRulesBellConfig({ printScope: targetScope });
+    } else {
+      window.print();
+    }
   };
 
   const handleCsvUpload = async (ev: React.ChangeEvent<HTMLInputElement>) => {
@@ -1141,7 +1187,10 @@ export default function App() {
         ? attendanceDims.paperW
         : activeTab === 'berita_acara'
           ? beritaAcaraDims.paperW
-          : activeTab === 'students' || activeTab === 'schedule' || activeTab === 'proctor'
+          : activeTab === 'students' ||
+              activeTab === 'schedule' ||
+              activeTab === 'proctor' ||
+              activeTab === 'rules_bell'
             ? 210
             : geo.paperW;
   const activePageH =
@@ -1151,7 +1200,10 @@ export default function App() {
         ? attendanceDims.paperH
         : activeTab === 'berita_acara'
           ? beritaAcaraDims.paperH
-          : activeTab === 'students' || activeTab === 'schedule' || activeTab === 'proctor'
+          : activeTab === 'students' ||
+              activeTab === 'schedule' ||
+              activeTab === 'proctor' ||
+              activeTab === 'rules_bell'
             ? 297
             : geo.paperH;
 
@@ -1295,7 +1347,9 @@ export default function App() {
                             ? handleAttendancePrint()
                             : activeTab === 'berita_acara'
                               ? handleBeritaAcaraPrint(beritaAcaraFilteredRecords)
-                              : handleDirectPrint()
+                              : activeTab === 'rules_bell'
+                                ? handleRulesBellPrint('all')
+                                : handleDirectPrint()
                     }
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#FACC15] hover:bg-[#EAB308] text-[#092252] text-xs font-bold shadow-xs hover:shadow transition-all duration-150 active:scale-[0.98] whitespace-nowrap shrink-0"
                     title={
@@ -1307,7 +1361,9 @@ export default function App() {
                             ? `Cetak langsung ${totalPrintPages} halaman Daftar Hadir Peserta`
                             : activeTab === 'berita_acara'
                               ? `Cetak langsung ${totalPrintPages} halaman Berita Acara`
-                              : `Cetak langsung ${totalCardPrintPages} halaman Kartu PAS`
+                              : activeTab === 'rules_bell'
+                                ? `Cetak langsung ${totalPrintPages} halaman Kode Lonceng & Tata Tertib`
+                                : `Cetak langsung ${totalCardPrintPages} halaman Kartu PAS`
                     }
                   >
                     <Printer className="w-3.5 h-3.5" />
@@ -1319,7 +1375,9 @@ export default function App() {
                           ? `Cetak Absen (${totalPrintPages})`
                           : activeTab === 'berita_acara'
                             ? `Cetak BA (${totalPrintPages})`
-                            : `Cetak Kartu (${totalCardPrintPages})`}
+                            : activeTab === 'rules_bell'
+                              ? `Cetak Dokumen (${totalPrintPages})`
+                              : `Cetak Kartu (${totalCardPrintPages})`}
                   </button>
                 )}
 
@@ -2192,6 +2250,14 @@ export default function App() {
                 onNavigateTab={handleSelectWorkspaceTab}
               />
             )}
+            {activeTab === 'rules_bell' && (
+              <RulesAndBellWorkspace
+                cfg={rulesBellConfig}
+                onChange={updateRulesBellConfig}
+                onReset={resetRulesBellConfig}
+                onPrintScope={handleRulesBellPrint}
+              />
+            )}
             {activeTab === 'students' && (
               <StudentDataManager
                 students={students}
@@ -2370,6 +2436,7 @@ export default function App() {
             activeTab !== 'seating' &&
             activeTab !== 'attendance' &&
             activeTab !== 'berita_acara' &&
+            activeTab !== 'rules_bell' &&
             activeTab !== 'students' &&
             activeTab !== 'schedule' &&
             activeTab !== 'proctor' &&
@@ -2416,7 +2483,15 @@ export default function App() {
                       forPrint
                     />
                   )
-                : activeTab === 'students'
+                : activeTab === 'rules_bell'
+                  ? (
+                      <RulesAndBellPagesBlock
+                        cfg={rulesBellConfig}
+                        docIds={rulesBellPrintDocs}
+                        forPrint
+                      />
+                    )
+                  : activeTab === 'students'
                   ? students.length > 0 && (
                       <StudentRosterPrintBlock
                         students={students}

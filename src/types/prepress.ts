@@ -23,6 +23,7 @@ export type MainWorkspaceTab =
   | 'seating'
   | 'attendance'
   | 'berita_acara'
+  | 'rules_bell'
   | 'students'
   | 'mockup3d'
   | 'export'
