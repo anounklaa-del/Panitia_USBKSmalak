@@ -265,8 +265,13 @@ export default function App() {
   } | null>(null);
   const [beritaAcaraConfig, setBeritaAcaraConfig] = useState<BeritaAcaraConfig>(() => {
     try {
-      const saved = localStorage.getItem('pas_berita_acara_cfg_v1');
-      if (saved) return { ...DEFAULT_BERITA_ACARA_CONFIG, ...JSON.parse(saved) };
+      const savedV2 = localStorage.getItem('pas_berita_acara_cfg_v2');
+      if (savedV2) return { ...DEFAULT_BERITA_ACARA_CONFIG, ...JSON.parse(savedV2) };
+      const savedV1 = localStorage.getItem('pas_berita_acara_cfg_v1');
+      if (savedV1) {
+        const parsed = JSON.parse(savedV1) as Partial<BeritaAcaraConfig>;
+        return { ...DEFAULT_BERITA_ACARA_CONFIG, ...parsed, layoutMode: 'one_up' };
+      }
     } catch {
       // ignore storage failure
     }
@@ -351,7 +356,7 @@ export default function App() {
     setBeritaAcaraConfig((prev) => {
       const next = { ...prev, ...patch };
       try {
-        localStorage.setItem('pas_berita_acara_cfg_v1', JSON.stringify(next));
+        localStorage.setItem('pas_berita_acara_cfg_v2', JSON.stringify(next));
       } catch {
         // ignore storage quota errors
       }

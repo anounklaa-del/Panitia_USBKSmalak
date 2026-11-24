@@ -358,7 +358,7 @@ export const BeritaAcaraWorkspace: React.FC<BeritaAcaraWorkspaceProps> = ({
                 Berita Acara Ujian
               </h1>
               <p className="text-xs sm:text-[13px] text-white/85 mt-0.5 truncate">
-                Kelola berita acara pelaksanaan ujian dengan mudah dan terstruktur · Format Resmi 2-Up &amp; 1-Up
+                Kelola berita acara pelaksanaan ujian dengan mudah dan terstruktur · Format Resmi Per Lembar (1-Up)
               </p>
             </div>
           </div>
@@ -604,9 +604,9 @@ export const BeritaAcaraWorkspace: React.FC<BeritaAcaraWorkspaceProps> = ({
                 <div className="inline-flex p-0.5 bg-white border border-[#CBD5E1] rounded-lg gap-0.5">
                   {(
                     [
-                      ['two_up_duplicate', '2-Up (File 2)'],
+                      ['one_up', 'Per Lembar (1-Up)'],
+                      ['two_up_duplicate', '2-Up Duplikat'],
                       ['two_up_paired', '2 Sesi/Hal'],
-                      ['one_up', '1-Up'],
                     ] as Array<[BeritaAcaraLayoutMode, string]>
                   ).map(([mode, lbl]) => (
                     <button
@@ -979,7 +979,7 @@ export const BeritaAcaraWorkspace: React.FC<BeritaAcaraWorkspaceProps> = ({
                         {activeRecord.roomLabel} · {activeRecord.subjectLabel}
                       </span>
                       <span className="font-mono whitespace-nowrap">
-                        {baConfig.layoutMode === 'one_up' ? '1-Up Potret' : '2-Up Lanskap'}
+                        {baConfig.layoutMode === 'one_up' ? 'Per Lembar (1-Up)' : '2-Up Lanskap'}
                       </span>
                     </div>
 
@@ -1042,8 +1042,8 @@ export const BeritaAcaraWorkspace: React.FC<BeritaAcaraWorkspaceProps> = ({
                 <div className="inline-flex p-0.5 bg-[#F1F5F9] border border-[#E2E8F0] rounded-lg gap-0.5">
                   {(
                     [
-                      ['two_up_duplicate', '2-Up Duplikat (File 2)'],
-                      ['one_up', '1-Up Potret'],
+                      ['one_up', 'Per Lembar (1-Up)'],
+                      ['two_up_duplicate', '2-Up Duplikat'],
                     ] as Array<[BeritaAcaraLayoutMode, string]>
                   ).map(([mode, lbl]) => (
                     <button

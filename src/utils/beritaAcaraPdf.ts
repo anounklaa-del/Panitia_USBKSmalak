@@ -78,17 +78,17 @@ function renderSingleSlipToCanvas(
   const height = px(hMm);
 
   const fontFamily = '"Times New Roman", Georgia, serif';
-  const kopTitleFont = `bold ${ptToPx(compact ? 7.5 : 8.8)}px ${fontFamily}`;
-  const kopSchoolFont = `bold ${ptToPx(compact ? 8.5 : 9.8)}px ${fontFamily}`;
-  const kopAddrFont = `${ptToPx(compact ? 6.4 : 7.4)}px ${fontFamily}`;
-  const headingFont = `bold ${ptToPx(compact ? 9.2 : 10.6)}px ${fontFamily}`;
-  const bodyFont = `${ptToPx(compact ? 7.6 : 8.8)}px ${fontFamily}`;
-  const bodyBoldFont = `bold ${ptToPx(compact ? 7.6 : 8.8)}px ${fontFamily}`;
-  const footFont = `${ptToPx(compact ? 6.6 : 7.5)}px ${fontFamily}`;
+  const kopTitleFont = `bold ${ptToPx(compact ? 7.5 : 10.8)}px ${fontFamily}`;
+  const kopSchoolFont = `bold ${ptToPx(compact ? 8.5 : 12.2)}px ${fontFamily}`;
+  const kopAddrFont = `${ptToPx(compact ? 6.4 : 8.6)}px ${fontFamily}`;
+  const headingFont = `bold ${ptToPx(compact ? 9.2 : 12.5)}px ${fontFamily}`;
+  const bodyFont = `${ptToPx(compact ? 7.6 : 10.4)}px ${fontFamily}`;
+  const bodyBoldFont = `bold ${ptToPx(compact ? 7.6 : 10.4)}px ${fontFamily}`;
+  const footFont = `${ptToPx(compact ? 6.6 : 8.4)}px ${fontFamily}`;
 
   // Kop Surat
-  const logoBoxW = px(compact ? 12 : 14.5);
-  const logoH = px(compact ? 11.5 : 13.5);
+  const logoBoxW = px(compact ? 12 : 18.5);
+  const logoH = px(compact ? 11.5 : 17);
   if (logoImg) {
     const ratio = logoImg.width / Math.max(1, logoImg.height);
     const drawW = Math.min(logoBoxW, logoH * ratio);
@@ -103,7 +103,7 @@ function renderSingleSlipToCanvas(
   }
 
   const textCenterX = left + logoBoxW + (width - logoBoxW) / 2;
-  let curY = top + ptToPx(compact ? 7.5 : 8.8);
+  let curY = top + ptToPx(compact ? 7.5 : 10.8);
   const yearDash = (academicYear || '2026/2027').replace('/', '-');
   const periodTitle =
     baConfig.examPeriodTitle.trim() ||
@@ -116,40 +116,40 @@ function renderSingleSlipToCanvas(
   ctx.fillStyle = '#000000';
   ctx.font = kopTitleFont;
   ctx.fillText(periodTitle, textCenterX, curY, width - logoBoxW - px(2));
-  curY += ptToPx(compact ? 9 : 10.6);
+  curY += ptToPx(compact ? 9 : 13);
   ctx.fillText(`TAHUN PELAJARAN ${yearDash}`, textCenterX, curY, width - logoBoxW - px(2));
-  curY += ptToPx(compact ? 10 : 11.5);
+  curY += ptToPx(compact ? 10 : 14.5);
   ctx.font = kopSchoolFont;
   ctx.fillText('SMA NEGERI 1 ALALAK', textCenterX, curY, width - logoBoxW - px(2));
-  curY += ptToPx(compact ? 8 : 9.4);
+  curY += ptToPx(compact ? 8 : 11);
   ctx.font = kopAddrFont;
   ctx.fillText(schoolAddress, textCenterX, curY, width - logoBoxW - px(2));
 
-  const ruleY = Math.max(curY + px(1.5), top + logoH + px(1.8));
+  const ruleY = Math.max(curY + px(compact ? 1.5 : 2.2), top + logoH + px(2));
   ctx.beginPath();
   ctx.strokeStyle = '#000000';
-  ctx.lineWidth = px(0.65);
+  ctx.lineWidth = px(compact ? 0.65 : 0.85);
   ctx.moveTo(left, ruleY);
   ctx.lineTo(left + width, ruleY);
   ctx.stroke();
 
   // BERITA ACARA heading
-  curY = ruleY + px(compact ? 5.2 : 6.8);
+  curY = ruleY + px(compact ? 5.2 : 8.5);
   ctx.font = headingFont;
   ctx.textAlign = 'center';
   ctx.fillText('BERITA ACARA', left + width / 2, curY);
   const titleW = ctx.measureText('BERITA ACARA').width;
   ctx.beginPath();
-  ctx.lineWidth = px(0.28);
-  ctx.moveTo(left + width / 2 - titleW / 2, curY + px(0.6));
-  ctx.lineTo(left + width / 2 + titleW / 2, curY + px(0.6));
+  ctx.lineWidth = px(0.32);
+  ctx.moveTo(left + width / 2 - titleW / 2, curY + px(0.8));
+  ctx.lineTo(left + width / 2 + titleW / 2, curY + px(0.8));
   ctx.stroke();
 
   // Body lines
   ctx.textAlign = 'left';
   ctx.font = bodyFont;
-  const lineH = ptToPx(compact ? 10.6 : 12.6);
-  curY += px(compact ? 5.2 : 6.8);
+  const lineH = ptToPx(compact ? 10.6 : 15.8);
+  curY += px(compact ? 5.2 : 8.5);
 
   // Opening sentence
   let cx = left;
@@ -180,9 +180,9 @@ function renderSingleSlipToCanvas(
   writeSeg('sampai ');
   drawInlineValue(ctx, record.timeEnd, cx, curY, px(14), bodyBoldFont, isBlank, '…………..');
 
-  const labelW = px(compact ? 26 : 31);
+  const labelW = px(compact ? 26 : 36);
   const colonX = bodyX + labelW;
-  const valX = colonX + px(2.8);
+  const valX = colonX + px(3.2);
   const valMaxW = left + width - valX;
 
   curY += lineH;
@@ -239,10 +239,10 @@ function renderSingleSlipToCanvas(
   );
 
   // Section b
-  curY += lineH * 1.25;
+  curY += lineH * 1.35;
   ctx.fillText('b.', left, curY);
   ctx.fillText('Sampul Penilaian Sumatif', bodyX, curY);
-  const bColonX = bodyX + px(compact ? 33 : 38);
+  const bColonX = bodyX + px(compact ? 33 : 45);
   ctx.fillText(':', bColonX, curY);
   const subjVal = isBlank ? '……………………………………' : record.subjectLabel;
   const sw = drawInlineValue(
@@ -297,12 +297,12 @@ function renderSingleSlipToCanvas(
   ctx.fillText('Berita acara ini dibuat dengan sesungguhnya,', bodyX, curY);
 
   // Signature Table
-  curY += px(compact ? 3.5 : 5);
+  curY += px(compact ? 3.5 : 8);
   const boxW = width * (compact ? 0.68 : 0.62);
   const boxX = left + (width - boxW) / 2;
-  const hdrH = px(compact ? 5.2 : 6.2);
-  const sigRowH = px(compact ? 11.5 : 13.5);
-  const infoRowH = px(compact ? 5.5 : 6.5);
+  const hdrH = px(compact ? 5.2 : 7.5);
+  const sigRowH = px(compact ? 11.5 : 16.5);
+  const infoRowH = px(compact ? 5.5 : 7.5);
   const boxH = hdrH + sigRowH + infoRowH * 2;
   const colSplitX = boxX + boxW * 0.34;
 
@@ -539,8 +539,8 @@ export async function exportBeritaAcaraPdfBlob(
         );
       }
     } else {
-      const marginX = Math.max(14, (paperW - 175) / 2);
-      const marginY = 14;
+      const marginX = Math.max(16, (paperW - 175) / 2);
+      const marginY = 16;
       renderSingleSlipToCanvas(
         ctx,
         logoImg,

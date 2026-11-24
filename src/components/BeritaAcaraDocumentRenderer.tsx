@@ -71,11 +71,11 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
     baConfig.schoolAddress.trim() ||
     'Jalan Brigjen. H. Hasan Basri KM. 11 Handil Bakti Kec. Alalak Kab. Batola ,70582';
 
-  const bodyPt = compact ? '7.6pt' : '8.6pt';
-  const kopTitlePt = compact ? '7.5pt' : '8.5pt';
-  const kopSchoolPt = compact ? '8.4pt' : '9.5pt';
-  const kopAddrPt = compact ? '6.4pt' : '7.2pt';
-  const logoH = compact ? '11.5mm' : '13.5mm';
+  const bodyPt = compact ? '7.6pt' : '10.5pt';
+  const kopTitlePt = compact ? '7.5pt' : '11pt';
+  const kopSchoolPt = compact ? '8.4pt' : '12.5pt';
+  const kopAddrPt = compact ? '6.4pt' : '8.8pt';
+  const logoH = compact ? '11.5mm' : '17.5mm';
   const sigBoxW = compact ? '68%' : '62%';
 
   return (
@@ -83,7 +83,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
       style={{
         fontFamily: '"Times New Roman", Georgia, serif',
         color: '#000000',
-        lineHeight: compact ? 1.32 : 1.38,
+        lineHeight: compact ? 1.32 : 1.52,
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
@@ -94,14 +94,14 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '2.5mm',
-          paddingBottom: '1.4mm',
-          borderBottom: '0.7mm solid #000000',
+          gap: compact ? '2.5mm' : '4mm',
+          paddingBottom: compact ? '1.4mm' : '2.4mm',
+          borderBottom: compact ? '0.7mm solid #000000' : '0.85mm solid #000000',
         }}
       >
         <div
           style={{
-            width: compact ? '12mm' : '14.5mm',
+            width: compact ? '12mm' : '19mm',
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
@@ -119,7 +119,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
             }}
           />
         </div>
-        <div style={{ flex: 1, textAlign: 'center', lineHeight: 1.18 }}>
+        <div style={{ flex: 1, textAlign: 'center', lineHeight: compact ? 1.18 : 1.24 }}>
           <div style={{ fontSize: kopTitlePt, fontWeight: 700, letterSpacing: '0.08mm' }}>
             {titleText}
           </div>
@@ -129,7 +129,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
           <div style={{ fontSize: kopSchoolPt, fontWeight: 700 }}>
             SMA NEGERI 1 ALALAK
           </div>
-          <div style={{ fontSize: kopAddrPt, fontWeight: 400, marginTop: '0.3mm' }}>
+          <div style={{ fontSize: kopAddrPt, fontWeight: 400, marginTop: '0.4mm' }}>
             {addressText}
           </div>
         </div>
@@ -140,10 +140,10 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
         style={{
           textAlign: 'center',
           fontWeight: 700,
-          fontSize: compact ? '9pt' : '10.2pt',
+          fontSize: compact ? '9pt' : '12.5pt',
           textDecoration: 'underline',
-          marginTop: compact ? '2.4mm' : '3.4mm',
-          marginBottom: compact ? '2.2mm' : '3mm',
+          marginTop: compact ? '2.4mm' : '5.5mm',
+          marginBottom: compact ? '2.2mm' : '4.5mm',
           letterSpacing: '0.25mm',
         }}
       >
@@ -152,13 +152,13 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
 
       {/* Body Paragraphs */}
       <div style={{ fontSize: bodyPt, flex: 1 }}>
-        <div style={{ marginBottom: '1.2mm' }}>
+        <div style={{ marginBottom: compact ? '1.2mm' : '2.4mm' }}>
           Pada hari ini{' '}
           <DottedValue
             value={record.dayName}
             isBlank={isBlank}
             placeholder="………………"
-            minWidth="16mm"
+            minWidth={compact ? '16mm' : '20mm'}
             bold
           />{' '}
           Tanggal{' '}
@@ -166,7 +166,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
             value={record.dayNum}
             isBlank={isBlank}
             placeholder="……"
-            minWidth="7mm"
+            minWidth={compact ? '7mm' : '9mm'}
             bold
           />{' '}
           Bulan{' '}
@@ -174,7 +174,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
             value={record.monthName}
             isBlank={isBlank}
             placeholder="………….."
-            minWidth="18mm"
+            minWidth={compact ? '18mm' : '24mm'}
             bold
           />{' '}
           Tahun{' '}
@@ -182,15 +182,15 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
             value={record.year}
             isBlank={isBlank}
             placeholder="2026"
-            minWidth="9mm"
+            minWidth={compact ? '9mm' : '12mm'}
             bold
           />{' '}
           SMA Negeri 1 Alalak
         </div>
 
         {/* Section a */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1.8mm', marginBottom: '1.5mm' }}>
-          <span style={{ width: '3.5mm', flexShrink: 0 }}>a.</span>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: compact ? '1.8mm' : '2.5mm', marginBottom: compact ? '1.5mm' : '2.8mm' }}>
+          <span style={{ width: compact ? '3.5mm' : '4.5mm', flexShrink: 0 }}>a.</span>
           <div style={{ flex: 1 }}>
             <div>
               Telah menyelenggarakan Penilaian Sumatif dari pukul{' '}
@@ -198,14 +198,14 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 value={record.timeStart}
                 isBlank={isBlank}
                 placeholder="………….."
-                minWidth="12mm"
+                minWidth={compact ? '12mm' : '15mm'}
               />{' '}
               sampai{' '}
               <DottedValue
                 value={record.timeEnd}
                 isBlank={isBlank}
                 placeholder="……………….."
-                minWidth="13mm"
+                minWidth={compact ? '13mm' : '16mm'}
               />
             </div>
 
@@ -213,16 +213,16 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
               style={{
                 width: '100%',
                 borderCollapse: 'collapse',
-                marginTop: '0.7mm',
+                marginTop: compact ? '0.7mm' : '1.4mm',
                 fontSize: bodyPt,
               }}
             >
               <tbody>
                 <tr>
-                  <td style={{ width: compact ? '26mm' : '30mm', padding: '0.2mm 0', verticalAlign: 'top' }}>
+                  <td style={{ width: compact ? '26mm' : '36mm', padding: compact ? '0.2mm 0' : '0.5mm 0', verticalAlign: 'top' }}>
                     Ruang/ kelas
                   </td>
-                  <td style={{ width: '2.5mm', padding: '0.2mm 0', verticalAlign: 'top' }}>:</td>
+                  <td style={{ width: compact ? '2.5mm' : '3.5mm', padding: compact ? '0.2mm 0' : '0.5mm 0', verticalAlign: 'top' }}>:</td>
                   <td style={{ padding: '0.2mm 0' }}>
                     <DottedValue
                       value={record.roomLabel}
@@ -304,11 +304,11 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
         </div>
 
         {/* Section b */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1.8mm', marginBottom: '1.5mm' }}>
-          <span style={{ width: '3.5mm', flexShrink: 0 }}>b.</span>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: compact ? '1.8mm' : '2.5mm', marginBottom: compact ? '1.5mm' : '2.8mm' }}>
+          <span style={{ width: compact ? '3.5mm' : '4.5mm', flexShrink: 0 }}>b.</span>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '1mm' }}>
-              <span style={{ width: compact ? '34mm' : '38mm', flexShrink: 0 }}>
+              <span style={{ width: compact ? '34mm' : '45mm', flexShrink: 0 }}>
                 Sampul Penilaian Sumatif
               </span>
               <span>:</span>
@@ -347,8 +347,8 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
         </div>
 
         {/* Section c */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1.8mm' }}>
-          <span style={{ width: '3.5mm', flexShrink: 0 }}>c.</span>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: compact ? '1.8mm' : '2.5mm' }}>
+          <span style={{ width: compact ? '3.5mm' : '4.5mm', flexShrink: 0 }}>c.</span>
           <div style={{ flex: 1 }}>
             <div>Catatan selama pelaksanaan Penilaian Sumatif semester ganjil :</div>
             {isBlank || !record.notes.trim() ? (
@@ -356,13 +356,13 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 <div
                   style={{
                     borderBottom: '0.25mm dotted #111827',
-                    height: compact ? '4.2mm' : '5mm',
+                    height: compact ? '4.2mm' : '7.5mm',
                   }}
                 />
                 <div
                   style={{
                     borderBottom: '0.25mm dotted #111827',
-                    height: compact ? '4.2mm' : '5mm',
+                    height: compact ? '4.2mm' : '7.5mm',
                   }}
                 />
               </>
@@ -370,15 +370,17 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
               <div
                 style={{
                   borderBottom: '0.25mm dotted #111827',
-                  minHeight: compact ? '8.4mm' : '10mm',
-                  paddingTop: '0.6mm',
+                  minHeight: compact ? '8.4mm' : '15mm',
+                  paddingTop: compact ? '0.6mm' : '1.2mm',
                   fontWeight: 600,
                 }}
               >
                 {record.notes}
               </div>
             )}
-            <div style={{ marginTop: '1mm' }}>Berita acara ini dibuat dengan sesungguhnya,</div>
+            <div style={{ marginTop: compact ? '1mm' : '2mm' }}>
+              Berita acara ini dibuat dengan sesungguhnya,
+            </div>
           </div>
         </div>
 
@@ -387,14 +389,14 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
           style={{
             display: 'flex',
             justifyContent: 'center',
-            marginTop: compact ? '2.5mm' : '3.8mm',
+            marginTop: compact ? '2.5mm' : '7mm',
           }}
         >
           <table
             style={{
               width: sigBoxW,
               borderCollapse: 'collapse',
-              border: '0.3mm solid #000000',
+              border: '0.35mm solid #000000',
               fontSize: bodyPt,
             }}
           >
@@ -403,8 +405,8 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 <th
                   colSpan={2}
                   style={{
-                    borderBottom: '0.3mm solid #000000',
-                    padding: compact ? '0.9mm 2mm' : '1.2mm 2mm',
+                    borderBottom: '0.35mm solid #000000',
+                    padding: compact ? '0.9mm 2mm' : '1.8mm 2.5mm',
                     textAlign: 'center',
                     fontWeight: 700,
                   }}
@@ -418,8 +420,8 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 <td
                   style={{
                     width: '34%',
-                    borderRight: '0.3mm solid #000000',
-                    padding: compact ? '3.5mm 2mm 1.8mm 2mm' : '4.5mm 2.5mm 2.2mm 2.5mm',
+                    borderRight: '0.35mm solid #000000',
+                    padding: compact ? '3.5mm 2mm 1.8mm 2mm' : '8mm 3mm 2.8mm 3mm',
                     verticalAlign: 'bottom',
                   }}
                 >
@@ -427,7 +429,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 </td>
                 <td
                   style={{
-                    padding: compact ? '3.5mm 2mm 1.8mm 2.5mm' : '4.5mm 2.5mm 2.2mm 3mm',
+                    padding: compact ? '3.5mm 2mm 1.8mm 2.5mm' : '8mm 3mm 2.8mm 3.5mm',
                     verticalAlign: 'bottom',
                   }}
                 >
@@ -437,8 +439,8 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
               <tr>
                 <td
                   style={{
-                    borderRight: '0.3mm solid #000000',
-                    padding: compact ? '1.3mm 2mm' : '1.8mm 2.5mm',
+                    borderRight: '0.35mm solid #000000',
+                    padding: compact ? '1.3mm 2mm' : '2.2mm 3mm',
                     verticalAlign: 'middle',
                   }}
                 >
@@ -446,7 +448,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 </td>
                 <td
                   style={{
-                    padding: compact ? '1.3mm 2mm 1.3mm 2.5mm' : '1.8mm 2.5mm 1.8mm 3mm',
+                    padding: compact ? '1.3mm 2mm 1.3mm 2.5mm' : '2.2mm 3mm 2.2mm 3.5mm',
                     fontWeight: isBlank ? 400 : 700,
                     verticalAlign: 'middle',
                   }}
@@ -457,8 +459,8 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
               <tr>
                 <td
                   style={{
-                    borderRight: '0.3mm solid #000000',
-                    padding: compact ? '1.3mm 2mm 1.8mm 2mm' : '1.8mm 2.5mm 2.4mm 2.5mm',
+                    borderRight: '0.35mm solid #000000',
+                    padding: compact ? '1.3mm 2mm 1.8mm 2mm' : '2.2mm 3mm 2.8mm 3mm',
                     verticalAlign: 'middle',
                   }}
                 >
@@ -466,7 +468,7 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
                 </td>
                 <td
                   style={{
-                    padding: compact ? '1.3mm 2mm 1.8mm 2.5mm' : '1.8mm 2.5mm 2.4mm 3mm',
+                    padding: compact ? '1.3mm 2mm 1.8mm 2.5mm' : '2.2mm 3mm 2.8mm 3.5mm',
                     verticalAlign: 'middle',
                   }}
                 >
@@ -483,9 +485,9 @@ export const BeritaAcaraSingleSlip: React.FC<SlipProps> = ({
       {/* Footnote */}
       <div
         style={{
-          fontSize: compact ? '6.6pt' : '7.4pt',
-          marginTop: compact ? '2mm' : '3mm',
-          paddingTop: '0.8mm',
+          fontSize: compact ? '6.6pt' : '8.5pt',
+          marginTop: compact ? '2mm' : '5mm',
+          paddingTop: '1mm',
         }}
       >
         *) Diisi dengan mata pelajaran yang di Penilaian Sumatif (Semester Ganjil)
@@ -527,7 +529,7 @@ export function BeritaAcaraPagesBlock({
           {!forPrint && (
             <div className="mb-2 flex items-center gap-2 text-xs font-mono text-[#44546A]">
               <span className="font-semibold text-[#1F3864]">
-                HALAMAN {idx + 1} · {page.isTwoUp ? '2-UP LANSKAP (FORMAT FILE 2)' : '1-UP POTRET'}
+                HALAMAN {idx + 1} · {page.isTwoUp ? '2-UP LANSKAP' : 'PER LEMBAR (1-UP POTRET)'}
               </span>
               <span>·</span>
               <span>
@@ -543,7 +545,7 @@ export function BeritaAcaraPagesBlock({
             style={{
               width: `${paperW}mm`,
               height: `${paperH}mm`,
-              padding: page.isTwoUp ? '8mm 8mm' : '14mm 16mm',
+              padding: page.isTwoUp ? '8mm 8mm' : '16mm 18mm',
               boxSizing: 'border-box',
             }}
           >

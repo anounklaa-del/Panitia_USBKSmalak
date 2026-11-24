@@ -46,7 +46,7 @@ export interface BeritaAcaraConfig {
 }
 
 export const DEFAULT_BERITA_ACARA_CONFIG: BeritaAcaraConfig = {
-  layoutMode: 'two_up_duplicate',
+  layoutMode: 'one_up',
   fillMode: 'filled',
   examPeriodTitle: 'PANITIA PELAKSANA PENILAIAN SUMATIF SEMESTER GANJIL',
   schoolAddress: 'Jalan Brigjen. H. Hasan Basri KM. 11 Handil Bakti Kec. Alalak Kab. Batola ,70582',

@@ -1194,9 +1194,9 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                       }
                       className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-[#131C31]"
                     >
-                      <option value="two_up_duplicate">2-Up Lanskap Duplikat (Format File Kedua)</option>
+                      <option value="one_up">Per Lembar (1-Up Potret Penuh)</option>
+                      <option value="two_up_duplicate">2-Up Lanskap Duplikat</option>
                       <option value="two_up_paired">2-Up Lanskap Berpasangan (2 Ruang / Lembar)</option>
-                      <option value="one_up">1-Up Potret Penuh</option>
                     </select>
                   </div>
 
