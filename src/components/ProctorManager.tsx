@@ -428,15 +428,11 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
     const roomSummary =
       uniqueRooms.length === 0
         ? '-'
-        : uniqueRooms.length === 1
-          ? uniqueRooms[0]
-          : `${uniqueRooms[0]} (+${uniqueRooms.length - 1})`;
+        : uniqueRooms.join(', ');
     const subjectSummary =
       uniqueSubjects.length === 0
         ? 'Sesuai Jadwal PAS'
-        : uniqueSubjects.length === 1
-          ? uniqueSubjects[0]
-          : `${uniqueSubjects[0]}, +${uniqueSubjects.length - 1}`;
+        : uniqueSubjects.join(', ');
 
     return {
       totalShifts: allDuties.length,
@@ -810,7 +806,7 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                             PAS Sem. 1
                           </td>
                           <td
-                            className="py-2.5 px-3 font-mono font-semibold text-[#0F295C] whitespace-nowrap"
+                            className="py-2.5 px-3 font-mono font-semibold text-[#0F295C] max-w-[160px] truncate"
                             title={summary.roomTooltip}
                           >
                             {summary.roomSummary}

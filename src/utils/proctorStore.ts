@@ -419,9 +419,7 @@ export function describeMatrixSession(
   const subjText =
     subjectList.length === 0
       ? 'Tidak Ada Ujian'
-      : subjectList.length === 1
-        ? subjectList[0]
-        : `${subjectList[0]} (+${subjectList.length - 1})`;
+      : subjectList.join(', ');
 
   return {
     subjects: subjectList,

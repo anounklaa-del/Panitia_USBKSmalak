@@ -26,8 +26,6 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
   scheduleEntries,
   academicYear = '2026/2027',
   filterSummary,
-  chairName = 'Drs. H. Ahmad, M.Pd',
-  chairNip = '196805121993031005',
 }) => {
   // Group matrix sessions by dayNo for clean rowspan rendering matching official spreadsheet
   const dayGroups: Array<{
@@ -73,7 +71,7 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
     <>
       {(mode === 'matrix' || mode === 'both') && (
         <div
-          className="print-sheet-page bg-white text-[#0F172A] px-[10mm] py-[8mm] flex flex-col justify-between"
+          className="print-sheet-page bg-white text-[#0F172A] px-[10mm] py-[8mm]"
           style={{ width: '210mm', minHeight: '297mm', boxSizing: 'border-box' }}
         >
           <div>
@@ -219,19 +217,6 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-
-          <div className="mt-2 flex items-end justify-between text-[8.5px] text-[#334155]">
-            <div>
-              Dicetak dari Sistem Manajemen Panitia Ulangan · SMA Negeri 1 Alalak
-              {periodRangeText ? ` (${periodRangeText})` : ''}
-            </div>
-            <div className="text-center pr-6">
-              <div>Alalak, November 2026 · Ketua Panitia PAS</div>
-              <div className="h-7" />
-              <div className="font-bold underline text-[#0F172A]">{chairName}</div>
-              <div className="text-[7.5px] text-[#64748B]">NIP. {chairNip}</div>
             </div>
           </div>
         </div>
