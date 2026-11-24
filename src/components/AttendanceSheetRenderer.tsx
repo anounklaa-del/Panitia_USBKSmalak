@@ -32,8 +32,18 @@ function AttendancePageMarkup({
   const sigMinH = isUltraDense ? '2.85mm' : isVeryDense ? '3.9mm' : isDense ? '4.8mm' : '5.8mm';
   const pageGap = isUltraDense ? '1.1mm' : '2.2mm';
 
-  const sigColW = isLandscape ? '64mm' : '48mm';
-  const noPesertaW = attendanceConfig.showFullParticipantNo ? '34mm' : '15mm';
+  const sigColW = isLandscape ? '64mm' : '46mm';
+  const maxNoTextLen = rows.reduce((max, row) => {
+    const txt = attendanceConfig.showFullParticipantNo
+      ? formatParticipantNo(row.student.no)
+      : row.student.no;
+    return Math.max(max, txt.length);
+  }, 0);
+  const fullNoWidthMm = Math.max(
+    42,
+    Math.min(isLandscape ? 58 : 48, Math.ceil(maxNoTextLen * 1.65) + 5),
+  );
+  const noPesertaW = attendanceConfig.showFullParticipantNo ? `${fullNoWidthMm}mm` : '17mm';
 
   return (
     <div
@@ -333,7 +343,7 @@ function AttendancePageMarkup({
               <th
                 style={{
                   width: noPesertaW,
-                  padding: isUltraDense ? '0.65mm 1.1mm' : '1.2mm 1.4mm',
+                  padding: isUltraDense ? '0.65mm 1.1mm' : '1.2mm 1.1mm',
                   border: '0.25mm solid #334E7B',
                   textAlign: 'left',
                 }}
@@ -342,7 +352,7 @@ function AttendancePageMarkup({
               </th>
               <th
                 style={{
-                  padding: isUltraDense ? '0.65mm 1.4mm' : '1.2mm 1.8mm',
+                  padding: isUltraDense ? '0.65mm 1.4mm' : '1.2mm 1.6mm',
                   border: '0.25mm solid #334E7B',
                   textAlign: 'left',
                 }}
@@ -351,8 +361,8 @@ function AttendancePageMarkup({
               </th>
               <th
                 style={{
-                  width: '13mm',
-                  padding: isUltraDense ? '0.65mm 0.6mm' : '1.2mm 0.8mm',
+                  width: '12.5mm',
+                  padding: isUltraDense ? '0.65mm 0.5mm' : '1.2mm 0.6mm',
                   border: '0.25mm solid #334E7B',
                   textAlign: 'center',
                 }}
@@ -362,8 +372,8 @@ function AttendancePageMarkup({
               {attendanceConfig.showDeskAndRoomCol && (
                 <th
                   style={{
-                    width: '18.5mm',
-                    padding: isUltraDense ? '0.65mm 0.6mm' : '1.2mm 0.8mm',
+                    width: '18mm',
+                    padding: isUltraDense ? '0.65mm 0.5mm' : '1.2mm 0.6mm',
                     border: '0.25mm solid #334E7B',
                     textAlign: 'center',
                   }}
@@ -384,8 +394,8 @@ function AttendancePageMarkup({
               {attendanceConfig.showNotesCol && (
                 <th
                   style={{
-                    width: '12mm',
-                    padding: isUltraDense ? '0.65mm 0.6mm' : '1.2mm 0.8mm',
+                    width: '11.5mm',
+                    padding: isUltraDense ? '0.65mm 0.5mm' : '1.2mm 0.6mm',
                     border: '0.25mm solid #334E7B',
                     textAlign: 'center',
                   }}
@@ -415,15 +425,15 @@ function AttendancePageMarkup({
                   </td>
                   <td
                     style={{
-                      padding: `${rowPadY} 1.4mm`,
+                      padding: `${rowPadY} 1.1mm`,
                       border: '0.22mm solid #94A3B8',
                       fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-                      fontSize: isUltraDense ? '5.2pt' : isVeryDense ? '5.8pt' : isDense ? '6.3pt' : '6.8pt',
+                      fontSize: isUltraDense ? '5.1pt' : isVeryDense ? '5.6pt' : isDense ? '6.1pt' : '6.6pt',
+                      letterSpacing: '-0.015em',
                       fontWeight: 700,
                       color: '#1F3864',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      whiteSpace: maxNoTextLen > 28 ? 'normal' : 'nowrap',
+                      overflowWrap: 'anywhere',
                     }}
                   >
                     {attendanceConfig.showFullParticipantNo
