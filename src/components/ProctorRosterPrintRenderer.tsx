@@ -75,28 +75,32 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
           style={{ width: '210mm', minHeight: '297mm', boxSizing: 'border-box' }}
         >
           <div>
-            {/* Compact Header matching Image 2 */}
-            <div className="flex items-center justify-between gap-2 border-b-2 border-[#0F295C] pb-1.5 mb-2">
-              <img
-                src={LOGO_LEFT_DATA_URI}
-                alt="Logo Pendidikan"
-                className="w-9 h-9 object-contain shrink-0"
-              />
-              <div className="text-center flex-1">
-                <div className="text-[11.5px] font-extrabold uppercase tracking-wide text-[#0F172A]">
+            {/* Compact Header matching official Kop Surat */}
+            <div className="flex items-center justify-between gap-3 border-b-2 border-[#0F295C] pb-2 mb-2.5">
+              <div className="w-[15mm] flex items-center justify-center shrink-0">
+                <img
+                  src={LOGO_LEFT_DATA_URI}
+                  alt="Logo Pemerintah Provinsi Kalimantan Selatan"
+                  className="h-[13.5mm] w-auto max-w-full object-contain"
+                />
+              </div>
+              <div className="text-center flex-1 min-w-0">
+                <div className="text-[12.5px] font-extrabold uppercase tracking-wide text-[#0F172A] leading-snug">
                   DAFTAR PENGAWAS PENILAIAN SUMATIF AKHIR SEMESTER 1
                 </div>
-                <div className="text-[10px] font-bold uppercase text-[#1E3A8A]">
+                <div className="text-[10px] font-bold uppercase text-[#1E3A8A] mt-0.5">
                   SMA NEGERI 1 ALALAK · TAHUN PELAJARAN {academicYear}
                   {periodRangeText ? ` · ${periodRangeText}` : ''}
                   {filterSummary ? ` · ${filterSummary}` : ''}
                 </div>
               </div>
-              <img
-                src={LOGO_RIGHT_DATA_URI}
-                alt="Logo Sekolah"
-                className="w-9 h-9 object-contain shrink-0"
-              />
+              <div className="w-[15mm] flex items-center justify-center shrink-0">
+                <img
+                  src={LOGO_RIGHT_DATA_URI}
+                  alt="Logo SMA Negeri 1 Alalak"
+                  className="h-[12.5mm] w-auto max-w-full object-contain"
+                />
+              </div>
             </div>
 
             {/* Matrix Table matching Image 2 */}
