@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  Cloud,
   Eye,
   EyeOff,
   Home,
   KeyRound,
-  Lock,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -18,86 +18,110 @@ import {
 } from 'lucide-react';
 import type { CommitteeMember } from '../data/committeeData';
 import type { MainWorkspaceTab } from '../types/prepress';
+import type { AuthUser } from '../utils/authClient';
 import {
-  createPanitiaAccount,
-  deleteManagedAccount,
-  fetchManagedAccounts,
-  updateManagedAccount,
-  type AuthUser,
-  type ManagedAccount,
-} from '../utils/authClient';
+  createCloudPanitiaAccount,
+  deleteCloudPanitiaAccount,
+  fetchCloudAccountsDirectory,
+  updateCloudAccount,
+  type CloudManagedAccount,
+} from '../utils/cloudSync';
 
 interface AccountAccessManagerProps {
-  authToken: string;
   currentUser: AuthUser;
   committeeMembers: CommitteeMember[];
   onNavigateTab: (tab: MainWorkspaceTab) => void;
 }
 
+function suggestUsernameFromName(nama: string): string {
+  const cleaned = nama
+    .toLowerCase()
+    .replace(/\b(h\.|hj\.|dr\.|dra\.|drs\.|s\.pd|m\.pd|m\.m|s\.kom|s\.ag|s\.si)\b/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (cleaned.length === 0) return '';
+  return cleaned.slice(0, 2).join('.').slice(0, 24);
+}
+
 export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
-  authToken,
   currentUser,
   committeeMembers,
   onNavigateTab,
 }) => {
-  const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
-  const [hasEnvAdmin, setHasEnvAdmin] = useState(false);
-  const [hasEnvPanitia, setHasEnvPanitia] = useState(false);
+  const [accounts, setAccounts] = useState<CloudManagedAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
-  // Create modal state
+  // Create panitia account modal state
   const [createOpen, setCreateOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newJabatan, setNewJabatan] = useState('Anggota Panitia PAS');
   const [newPassword, setNewPassword] = useState('');
-  const [showNewPw, setShowNewPw] = useState(false);
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [savingCreate, setSavingCreate] = useState(false);
 
   // Reset password modal state
-  const [resetTarget, setResetTarget] = useState<ManagedAccount | null>(null);
-  const [resetPasswordVal, setResetPasswordVal] = useState('');
-  const [showResetPw, setShowResetPw] = useState(false);
+  const [resetTarget, setResetTarget] = useState<CloudManagedAccount | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [savingReset, setSavingReset] = useState(false);
+
+  const formatError = (err: unknown, fallback: string): string => {
+    if (err instanceof Error && err.message && err.message !== '[object Object]') {
+      try {
+        const parsed = JSON.parse(err.message) as { error?: string };
+        if (parsed && typeof parsed.error === 'string') return parsed.error;
+      } catch {
+        // ignore
+      }
+      return err.message;
+    }
+    return fallback;
+  };
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const data = await fetchManagedAccounts(authToken);
-      setAccounts(data.accounts);
-      setHasEnvAdmin(data.hasEnvAdmin);
-      setHasEnvPanitia(data.hasEnvPanitia);
+      const list = await fetchCloudAccountsDirectory();
+      setAccounts(list);
     } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Gagal memuat daftar akun login.',
-      );
+      setErrorMsg(formatError(err, 'Gagal memuat daftar akun dari Cloud.'));
     } finally {
       setLoading(false);
     }
-  }, [authToken]);
+  }, []);
 
   useEffect(() => {
     void loadAccounts();
   }, [loadAccounts]);
 
-  const activeCount = accounts.filter((a) => a.active).length;
-  const panitiaCount = accounts.filter((a) => a.role === 'panitia').length;
-  const adminCount = accounts.filter((a) => a.role === 'admin').length;
+  const activeCount = useMemo(
+    () => accounts.filter((a) => a.active).length,
+    [accounts],
+  );
+  const panitiaCount = useMemo(
+    () => accounts.filter((a) => a.role === 'panitia').length,
+    [accounts],
+  );
+  const adminCount = useMemo(
+    () => accounts.filter((a) => a.role === 'admin').length,
+    [accounts],
+  );
 
   const handlePickCommitteeMember = (memberId: string) => {
     const member = committeeMembers.find((m) => m.id === memberId);
     if (!member) return;
-    const suggestedUser = member.nama
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '.')
-      .replace(/^\.+|\.+$/g, '')
-      .slice(0, 24);
-    setNewUsername(suggestedUser);
     setNewDisplayName(member.nama);
     setNewJabatan(member.jabatan);
+    const suggested = suggestUsernameFromName(member.nama);
+    if (suggested) setNewUsername(suggested);
   };
 
   const handleCreateSubmit = async (ev: React.FormEvent) => {
@@ -105,44 +129,50 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
     if (savingCreate) return;
     setErrorMsg(null);
     setFeedbackMsg(null);
+
+    if (newPassword !== confirmNewPassword) {
+      setErrorMsg('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
     setSavingCreate(true);
     try {
-      const res = await createPanitiaAccount(authToken, {
+      const created = await createCloudPanitiaAccount({
         username: newUsername.trim(),
         displayName: newDisplayName.trim(),
         jabatan: newJabatan.trim() || 'Anggota Panitia PAS',
         password: newPassword,
       });
-      setAccounts((prev) => [...prev, res.account]);
-      setFeedbackMsg(`Akun panitia "${res.account.username}" berhasil ditambahkan.`);
+      setAccounts((prev) => [...prev, created]);
+      setFeedbackMsg(
+        `Akun panitia "${created.username}" (${created.displayName}) berhasil disimpan ke Cloud dan siap digunakan di semua perangkat.`,
+      );
       setCreateOpen(false);
       setNewUsername('');
       setNewDisplayName('');
       setNewJabatan('Anggota Panitia PAS');
       setNewPassword('');
+      setConfirmNewPassword('');
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal membuat akun baru.');
+      setErrorMsg(formatError(err, 'Gagal menambahkan akun panitia.'));
     } finally {
       setSavingCreate(false);
     }
   };
 
-  const handleToggleActive = async (acc: ManagedAccount) => {
-    if (acc.username.toLowerCase() === 'admin') return;
+  const handleToggleActive = async (acc: CloudManagedAccount) => {
     setErrorMsg(null);
     setFeedbackMsg(null);
     try {
-      const res = await updateManagedAccount(authToken, acc.username, {
-        active: !acc.active,
-      });
+      const updated = await updateCloudAccount(acc.username, { active: !acc.active });
       setAccounts((prev) =>
-        prev.map((a) => (a.username === acc.username ? res.account : a)),
+        prev.map((item) => (item.usernameKey === updated.usernameKey ? updated : item)),
       );
       setFeedbackMsg(
-        `Akun "${acc.username}" sekarang ${res.account.active ? 'Aktif' : 'Dinonaktifkan'}.`,
+        `Status akun "${updated.username}" diubah menjadi ${updated.active ? 'Aktif' : 'Dinonaktifkan'}.`,
       );
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal memperbarui status akun.');
+      setErrorMsg(formatError(err, 'Gagal mengubah status akun.'));
     }
   };
 
@@ -151,34 +181,45 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
     if (!resetTarget || savingReset) return;
     setErrorMsg(null);
     setFeedbackMsg(null);
+
+    const minLen = resetTarget.usernameKey === 'admin' ? 4 : 3;
+    if (resetPassword.length < minLen) {
+      setErrorMsg(`Kata sandi minimal ${minLen} karakter.`);
+      return;
+    }
+    if (resetPassword !== confirmResetPassword) {
+      setErrorMsg('Konfirmasi kata sandi baru tidak cocok.');
+      return;
+    }
+
     setSavingReset(true);
     try {
-      const res = await updateManagedAccount(authToken, resetTarget.username, {
-        password: resetPasswordVal,
-      });
+      const updated = await updateCloudAccount(resetTarget.username, { password: resetPassword });
       setAccounts((prev) =>
-        prev.map((a) => (a.username === resetTarget.username ? res.account : a)),
+        prev.map((item) => (item.usernameKey === updated.usernameKey ? updated : item)),
       );
-      setFeedbackMsg(`Kata sandi untuk "${resetTarget.username}" berhasil diperbarui.`);
+      setFeedbackMsg(
+        `Kata sandi akun "${updated.username}" berhasil diperbarui di Cloud dan langsung berlaku di semua perangkat.`,
+      );
       setResetTarget(null);
-      setResetPasswordVal('');
+      setResetPassword('');
+      setConfirmResetPassword('');
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal memperbarui kata sandi.');
+      setErrorMsg(formatError(err, 'Gagal memperbarui kata sandi.'));
     } finally {
       setSavingReset(false);
     }
   };
 
-  const handleDeleteAccount = async (acc: ManagedAccount) => {
-    if (acc.isBuiltIn) return;
+  const handleDeleteAccount = async (acc: CloudManagedAccount) => {
     setErrorMsg(null);
     setFeedbackMsg(null);
     try {
-      await deleteManagedAccount(authToken, acc.username);
-      setAccounts((prev) => prev.filter((a) => a.username !== acc.username));
-      setFeedbackMsg(`Akun "${acc.username}" dihapus.`);
+      await deleteCloudPanitiaAccount(acc.username);
+      setAccounts((prev) => prev.filter((item) => item.usernameKey !== acc.usernameKey));
+      setFeedbackMsg(`Akun "${acc.username}" berhasil dihapus dari Cloud.`);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal menghapus akun.');
+      setErrorMsg(formatError(err, 'Gagal menghapus akun panitia.'));
     }
   };
 
@@ -206,14 +247,14 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                 <span>Dashboard</span>
               </button>
               <span aria-hidden="true">/</span>
-              <span className="font-semibold text-white">Manajemen Akun &amp; Akses</span>
+              <span className="font-semibold text-white">Manajemen Akun &amp; Hak Akses</span>
             </nav>
             <h1 className="font-display font-extrabold text-xl lg:text-2xl tracking-tight">
-              Manajemen Akun Login Panitia &amp; Administrator
+              Daftar Akun Login Panitia &amp; Administrator (Cloud)
             </h1>
             <p className="text-xs text-[#E0EAFF] mt-1">
-              Masuk sebagai <strong className="text-white">{currentUser.username}</strong> · Hanya
-              Administrator yang dapat mengelola kredensial akses portal panitia.
+              Masuk sebagai <strong className="text-white">{currentUser.username}</strong> · Semua
+              akun username &amp; kata sandi tersimpan di Cloud Firestore sehingga laptop lain langsung bisa login tanpa membuat sandi ulang.
             </p>
           </div>
 
@@ -247,7 +288,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
               <UserCheck className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs text-[#64748B] font-medium">Akun Aktif</div>
+              <div className="text-xs text-[#64748B] font-medium">Total Akun Aktif</div>
               <div className="font-display font-extrabold text-2xl text-[#131C31] tabular-nums">
                 {activeCount}
               </div>
@@ -271,7 +312,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs text-[#64748B] font-medium">Administrator</div>
+              <div className="text-xs text-[#64748B] font-medium">Akun Administrator</div>
               <div className="font-display font-extrabold text-2xl text-[#131C31] tabular-nums">
                 {adminCount}
               </div>
@@ -279,13 +320,13 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
           </div>
 
           <div className="bg-white rounded-xl border border-[#DCE5F2] p-4 flex items-center gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-[#FFFBEB] text-[#B45309] flex items-center justify-center shrink-0">
-              <KeyRound className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-[#EFF6FF] text-[#0369A1] flex items-center justify-center shrink-0">
+              <Cloud className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs text-[#64748B] font-medium">Env Secrets Override</div>
+              <div className="text-xs text-[#64748B] font-medium">Mode Autentikasi</div>
               <div className="font-display font-bold text-sm text-[#131C31] mt-0.5">
-                {hasEnvAdmin || hasEnvPanitia ? 'Aktif via Server' : 'Mode Lokal Terenkripsi'}
+                Username &amp; Sandi · Cloud Sync
               </div>
             </div>
           </div>
@@ -327,11 +368,11 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
           <div className="px-5 py-4 border-b border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
               <h2 className="font-display font-bold text-base text-[#131C31]">
-                Daftar Akun Akses Portal Ujian
+                Daftar Akun Terdaftar ({accounts.length})
               </h2>
               <p className="text-xs text-[#64748B]">
-                Semua kata sandi tersimpan sebagai hash scrypt di server dan diverifikasi menggunakan
-                token sesi Bearer.
+                Kelola username dan kata sandi akun bawaan (<code className="font-mono">admin</code>,{' '}
+                <code className="font-mono">Panitia</code>) maupun akun panitia tambahan.
               </p>
             </div>
           </div>
@@ -342,10 +383,9 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                 <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[11px] font-semibold text-[#475569]">
                   <th className="py-3 px-4 whitespace-nowrap">Username</th>
                   <th className="py-3 px-4">Nama Lengkap</th>
-                  <th className="py-3 px-4">Jabatan</th>
                   <th className="py-3 px-4 whitespace-nowrap">Peran</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Sumber Sandi</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Status</th>
+                  <th className="py-3 px-4">Jabatan</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Status Akses</th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">Aksi</th>
                 </tr>
               </thead>
@@ -353,86 +393,94 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                 {loading ? (
                   Array.from({ length: 3 }).map((_, idx) => (
                     <tr key={idx}>
-                      <td colSpan={7} className="py-3.5 px-4">
+                      <td colSpan={6} className="py-3.5 px-4">
                         <div className="h-4 bg-[#F1F5F9] rounded animate-pulse" />
                       </td>
                     </tr>
                   ))
                 ) : accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 px-4 text-center text-[#64748B]">
-                      Belum ada akun terdaftar.
+                    <td colSpan={6} className="py-8 px-4 text-center text-[#64748B]">
+                      Belum ada daftar akun di direktori Cloud.
                     </td>
                   </tr>
                 ) : (
-                  accounts.map((acc) => {
-                    const isPrimaryAdmin = acc.username.toLowerCase() === 'admin';
-                    return (
-                      <tr key={acc.username} className="hover:bg-[#F8FAFC] transition-colors">
-                        <td className="py-3 px-4 font-mono font-semibold text-[#131C31] whitespace-nowrap">
-                          {acc.username}
-                        </td>
-                        <td className="py-3 px-4 font-medium text-[#1E293B]">{acc.displayName}</td>
-                        <td className="py-3 px-4 text-[#475569]">{acc.jabatan}</td>
-                        <td className="py-3 px-4 whitespace-nowrap font-semibold text-[#1F3864]">
-                          {acc.role === 'admin' ? 'Administrator' : 'Panitia'}
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap text-[#475569]">
-                          {acc.source === 'env' ? 'Environment Secret' : 'Hash Server Lokal'}
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          {acc.active ? (
-                            <span className="inline-flex items-center gap-1 font-semibold text-[#059669]">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Aktif
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 font-semibold text-[#B91C1C]">
-                              <UserX className="w-3.5 h-3.5" />
-                              Nonaktif
+                  accounts.map((acc) => (
+                    <tr key={acc.usernameKey} className="hover:bg-[#F8FAFC] transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-[#131C31] whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span>{acc.username}</span>
+                          {acc.isBuiltIn && (
+                            <span className="px-1.5 py-0.5 rounded bg-[#EEF2FF] text-[#1F3864] font-sans text-[10px] font-semibold">
+                              Bawaan
                             </span>
                           )}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
-                            {acc.source !== 'env' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setResetTarget(acc);
-                                  setResetPasswordVal('');
-                                  setErrorMsg(null);
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#1F3864] font-semibold transition-colors"
-                              >
-                                <KeyRound className="w-3 h-3" />
-                                Ganti Sandi
-                              </button>
-                            )}
-                            {!isPrimaryAdmin && acc.source !== 'env' && (
-                              <button
-                                type="button"
-                                onClick={() => void handleToggleActive(acc)}
-                                className="px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#334155] font-medium transition-colors"
-                              >
-                                {acc.active ? 'Nonaktifkan' : 'Aktifkan'}
-                              </button>
-                            )}
-                            {!acc.isBuiltIn && (
-                              <button
-                                type="button"
-                                onClick={() => void handleDeleteAccount(acc)}
-                                title="Hapus akun panitia"
-                                className="p-1.5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-medium text-[#1E293B]">{acc.displayName}</td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <span
+                          className={`font-semibold ${
+                            acc.role === 'admin' ? 'text-[#1F3864]' : 'text-[#1D4ED8]'
+                          }`}
+                        >
+                          {acc.role === 'admin' ? 'Administrator' : 'Panitia'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-[#475569]">{acc.jabatan}</td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {acc.active ? (
+                          <span className="inline-flex items-center gap-1 font-semibold text-[#059669]">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Aktif
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-semibold text-[#B91C1C]">
+                            <UserX className="w-3.5 h-3.5" />
+                            Nonaktif
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setErrorMsg(null);
+                              setResetTarget(acc);
+                              setResetPassword('');
+                              setConfirmResetPassword('');
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#EFF6FF] hover:border-[#BFDBFE] text-[#1D4ED8] font-semibold transition-colors"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            Ubah Sandi
+                          </button>
+
+                          {acc.usernameKey !== 'admin' && (
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleActive(acc)}
+                              className="px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#334155] font-medium transition-colors"
+                            >
+                              {acc.active ? 'Nonaktifkan' : 'Aktifkan'}
+                            </button>
+                          )}
+
+                          {!acc.isBuiltIn && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteAccount(acc)}
+                              title={`Hapus akun ${acc.username}`}
+                              className="p-1.5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -468,7 +516,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
             <form onSubmit={handleCreateSubmit} className="p-5 space-y-3.5 text-xs">
               <div>
                 <label className="block font-semibold text-[#334155] mb-1">
-                  Ambil Cepat dari Data Panitia (Opsional)
+                  Ambil dari Data Panitia Ujian (Opsional)
                 </label>
                 <select
                   defaultValue=""
@@ -486,7 +534,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
 
               <div>
                 <label className="block font-semibold text-[#334155] mb-1">
-                  Username Login Panitia
+                  Nama Pengguna (Username)
                 </label>
                 <input
                   type="text"
@@ -521,28 +569,42 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-[#334155] mb-1">
-                  Kata Sandi Awal (min. 3 karakter)
-                </label>
-                <div className="relative">
-                  <Lock className="w-3.5 h-3.5 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-[#334155] mb-1">
+                    Kata Sandi Awal
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Min. 3 karakter"
+                      className="w-full px-3 py-2 pr-8 rounded-lg border border-[#CBD5E1] text-[#131C31]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((p) => !p)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748B]"
+                    >
+                      {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-[#334155] mb-1">
+                    Konfirmasi Sandi
+                  </label>
                   <input
-                    type={showNewPw ? 'text' : 'password'}
+                    type={showNewPassword ? 'text' : 'password'}
                     required
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Masukkan kata sandi"
-                    autoComplete="new-password"
-                    className="w-full pl-9 pr-9 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    placeholder="Ulangi sandi"
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPw((v) => !v)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748B]"
-                  >
-                    {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
                 </div>
               </div>
 
@@ -559,7 +621,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                   disabled={savingCreate}
                   className="px-4 py-2 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white font-bold"
                 >
-                  {savingCreate ? 'Menyimpan...' : 'Simpan Akun Panitia'}
+                  {savingCreate ? 'Menyimpan...' : 'Simpan Akun ke Cloud'}
                 </button>
               </div>
             </form>
@@ -567,7 +629,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
         </div>
       )}
 
-      {/* Reset Password Modal */}
+      {/* Reset / Change Account Password Modal */}
       {resetTarget && (
         <div
           className="fixed inset-0 z-50 bg-[#041434]/60 flex items-center justify-center p-4"
@@ -581,7 +643,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                 id="modal-reset-pw-title"
                 className="font-display font-bold text-base text-[#131C31]"
               >
-                Perbarui Kata Sandi
+                Ubah Sandi: <span className="font-mono text-[#1D4ED8]">{resetTarget.username}</span>
               </h3>
               <button
                 type="button"
@@ -592,32 +654,45 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleResetPasswordSubmit} className="p-5 space-y-4 text-xs">
-              <p className="text-[#475569]">
-                Tetapkan kata sandi baru untuk akun{' '}
-                <strong className="font-mono text-[#131C31]">{resetTarget.username}</strong> (
-                {resetTarget.displayName}).
-              </p>
-              <div className="relative">
-                <Lock className="w-3.5 h-3.5 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type={showResetPw ? 'text' : 'password'}
-                  required
-                  value={resetPasswordVal}
-                  onChange={(e) => setResetPasswordVal(e.target.value)}
-                  placeholder="Kata sandi baru"
-                  autoComplete="new-password"
-                  className="w-full pl-9 pr-9 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowResetPw((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748B]"
-                >
-                  {showResetPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+            <form onSubmit={handleResetPasswordSubmit} className="p-5 space-y-3.5 text-xs">
+              <div>
+                <label className="block font-semibold text-[#334155] mb-1">
+                  Kata Sandi Baru ({resetTarget.usernameKey === 'admin' ? 'min. 4' : 'min. 3'} karakter)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showResetPassword ? 'text' : 'password'}
+                    required
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    placeholder="Masukkan kata sandi baru"
+                    className="w-full px-3 py-2 pr-9 rounded-lg border border-[#CBD5E1] text-[#131C31]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPassword((p) => !p)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748B]"
+                  >
+                    {showResetPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center justify-end gap-2">
+
+              <div>
+                <label className="block font-semibold text-[#334155] mb-1">
+                  Konfirmasi Kata Sandi Baru
+                </label>
+                <input
+                  type={showResetPassword ? 'text' : 'password'}
+                  required
+                  value={confirmResetPassword}
+                  onChange={(e) => setConfirmResetPassword(e.target.value)}
+                  placeholder="Ulangi kata sandi baru"
+                  className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setResetTarget(null)}
@@ -628,7 +703,7 @@ export const AccountAccessManager: React.FC<AccountAccessManagerProps> = ({
                 <button
                   type="submit"
                   disabled={savingReset}
-                  className="px-4 py-2 rounded-lg bg-[#1F3864] hover:bg-[#172B4D] disabled:opacity-60 text-white font-bold"
+                  className="px-4 py-2 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white font-bold"
                 >
                   {savingReset ? 'Menyimpan...' : 'Perbarui Sandi'}
                 </button>

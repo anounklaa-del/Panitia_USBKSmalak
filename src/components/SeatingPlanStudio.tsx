@@ -58,6 +58,12 @@ import {
 import { SeatingSheetPagesBlock } from './SeatingPlanRenderer';
 import { SettingsDrawer } from './SettingsDrawer';
 
+export interface RoomAllocationOverride {
+  capacity: number;
+  supervisor: string;
+  note?: string;
+}
+
 interface SeatingPlanStudioProps {
   students: StudentRecord[];
   filteredCardStudents: StudentRecord[];
@@ -66,6 +72,8 @@ interface SeatingPlanStudioProps {
   paperConfig: PrepressConfig;
   seatingConfig: SeatingConfig;
   schedulesMap?: Record<string, ScheduleRow[]>;
+  roomOverrides?: Record<string, RoomAllocationOverride>;
+  onRoomOverridesChange?: (next: Record<string, RoomAllocationOverride>) => void;
   pageIndex: number;
   onPageIndexChange: (idx: number) => void;
   onPaperConfigChange: (patch: Partial<PrepressConfig>) => void;
@@ -75,12 +83,6 @@ interface SeatingPlanStudioProps {
   onNavigateTab?: (tab: MainWorkspaceTab) => void;
   settingsOpen: boolean;
   onCloseSettings: () => void;
-}
-
-interface RoomAllocationOverride {
-  capacity: number;
-  supervisor: string;
-  note?: string;
 }
 
 interface ExamSessionOption {
@@ -162,6 +164,8 @@ export const SeatingPlanStudio: React.FC<SeatingPlanStudioProps> = ({
   paperConfig,
   seatingConfig,
   schedulesMap,
+  roomOverrides: controlledRoomOverrides,
+  onRoomOverridesChange,
   pageIndex,
   onPageIndexChange,
   onPaperConfigChange,
@@ -174,7 +178,9 @@ export const SeatingPlanStudio: React.FC<SeatingPlanStudioProps> = ({
 }) => {
   const liveSchedulesMap = schedulesMap ?? getLiveSchedulesMap();
   const [viewMode, setViewMode] = useState<'overview' | 'sheet'>('overview');
-  const [roomOverrides, setRoomOverrides] = useState<Record<string, RoomAllocationOverride>>(() => {
+  const [internalRoomOverrides, setInternalRoomOverrides] = useState<
+    Record<string, RoomAllocationOverride>
+  >(() => {
     try {
       const saved = localStorage.getItem(ROOM_ALLOCATION_STORAGE_KEY);
       if (saved) return JSON.parse(saved) as Record<string, RoomAllocationOverride>;
@@ -183,6 +189,7 @@ export const SeatingPlanStudio: React.FC<SeatingPlanStudioProps> = ({
     }
     return {};
   });
+  const roomOverrides = controlledRoomOverrides ?? internalRoomOverrides;
 
   const sessionOptions = useMemo(
     () => buildExamSessionOptions(liveSchedulesMap),
@@ -202,11 +209,15 @@ export const SeatingPlanStudio: React.FC<SeatingPlanStudioProps> = ({
   const [editNote, setEditNote] = useState<string>('');
 
   const persistOverrides = (next: Record<string, RoomAllocationOverride>) => {
-    setRoomOverrides(next);
-    try {
-      localStorage.setItem(ROOM_ALLOCATION_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore quota errors
+    if (onRoomOverridesChange) {
+      onRoomOverridesChange(next);
+    } else {
+      setInternalRoomOverrides(next);
+      try {
+        localStorage.setItem(ROOM_ALLOCATION_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore quota errors
+      }
     }
   };
 

@@ -1,0 +1,290 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Security Primitives & Schema Helpers
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidAccountId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 64 && id.matches('^[a-z0-9._\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function adminExists() {
+      return exists(/databases/$(database)/documents/pas_accounts/admin);
+    }
+
+    function isValidPasAccount(data) {
+      return data.keys().hasAll([
+          'username',
+          'usernameKey',
+          'displayName',
+          'jabatan',
+          'role',
+          'active',
+          'isBuiltIn',
+          'saltHex',
+          'hashHex',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'username',
+          'usernameKey',
+          'displayName',
+          'jabatan',
+          'role',
+          'active',
+          'isBuiltIn',
+          'saltHex',
+          'hashHex',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.username is string
+        && data.username.size() >= 3
+        && data.username.size() <= 64
+        && data.usernameKey is string
+        && data.usernameKey.size() >= 3
+        && data.usernameKey.size() <= 64
+        && data.usernameKey.matches('^[a-z0-9._\\-]+$')
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 120
+        && data.jabatan is string
+        && data.jabatan.size() >= 1
+        && data.jabatan.size() <= 120
+        && data.role is string
+        && data.role.size() <= 16
+        && (data.role == 'admin' || data.role == 'panitia')
+        && data.active is bool
+        && data.isBuiltIn is bool
+        && data.saltHex is string
+        && data.saltHex.size() >= 16
+        && data.saltHex.size() <= 128
+        && data.saltHex.matches('^[a-f0-9]+$')
+        && data.hashHex is string
+        && data.hashHex.size() >= 32
+        && data.hashHex.size() <= 256
+        && data.hashHex.matches('^[a-f0-9]+$')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAccountDirectory(data) {
+      return data.keys().hasAll([
+          'username',
+          'usernameKey',
+          'displayName',
+          'jabatan',
+          'role',
+          'active',
+          'isBuiltIn',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'username',
+          'usernameKey',
+          'displayName',
+          'jabatan',
+          'role',
+          'active',
+          'isBuiltIn',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.username is string
+        && data.username.size() >= 3
+        && data.username.size() <= 64
+        && data.usernameKey is string
+        && data.usernameKey.size() >= 3
+        && data.usernameKey.size() <= 64
+        && data.usernameKey.matches('^[a-z0-9._\\-]+$')
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 120
+        && data.jabatan is string
+        && data.jabatan.size() >= 1
+        && data.jabatan.size() <= 120
+        && data.role is string
+        && data.role.size() <= 16
+        && (data.role == 'admin' || data.role == 'panitia')
+        && data.active is bool
+        && data.isBuiltIn is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDatasetId(id) {
+      return id in [
+        'students',
+        'committee',
+        'schedules',
+        'proctors',
+        'proctor_matrix',
+        'berita_acara_overrides',
+        'room_allocations',
+        'rules_bell',
+        'settings_configs'
+      ];
+    }
+
+    function isValidPasDataset(data, datasetId) {
+      return data.keys().hasAll([
+          'datasetType',
+          'payload',
+          'itemCount',
+          'updatedByUsername',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'datasetType',
+          'payload',
+          'itemCount',
+          'updatedByUsername',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.datasetType is string
+        && data.datasetType.size() <= 40
+        && data.datasetType == datasetId
+        && data.payload is map
+        && data.payload.keys().size() >= 1
+        && data.payload.keys().size() <= 4
+        && data.payload.keys().hasOnly(['items', 'data'])
+        && (!('items' in data.payload) || (
+          data.payload.items is list
+          && data.payload.items.size() <= 2000
+          && (data.payload.items.size() == 0 || data.payload.items[0] is map)
+        ))
+        && (!('data' in data.payload) || data.payload.data is map)
+        && data.itemCount is int
+        && data.itemCount >= 0
+        && data.itemCount <= 2000
+        && data.updatedByUsername is string
+        && data.updatedByUsername.size() >= 3
+        && data.updatedByUsername.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+
+    // 1. Credential Store (Username + PBKDF2-SHA256 hash; listing strictly disabled)
+    match /pas_accounts/{usernameKey} {
+      allow get: if isValidAccountId(usernameKey);
+      allow list: if false;
+      allow create: if isValidAccountId(usernameKey)
+        && isValidPasAccount(incoming())
+        && incoming().usernameKey == usernameKey
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (usernameKey == 'admin' && !adminExists() && incoming().role == 'admin' && incoming().active == true && incoming().isBuiltIn == true)
+          || (usernameKey == 'panitia' && incoming().role == 'panitia' && incoming().isBuiltIn == true)
+          || (usernameKey != 'admin' && usernameKey != 'panitia' && adminExists() && incoming().role == 'panitia' && incoming().isBuiltIn == false)
+        );
+      allow update: if isValidAccountId(usernameKey)
+        && isValidPasAccount(incoming())
+        && incoming().usernameKey == existing().usernameKey
+        && incoming().username == existing().username
+        && incoming().role == existing().role
+        && incoming().isBuiltIn == existing().isBuiltIn
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (usernameKey != 'admin' || (incoming().active == true && incoming().role == 'admin'))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'jabatan',
+          'active',
+          'saltHex',
+          'hashHex',
+          'updatedAt'
+        ]);
+      allow delete: if isValidAccountId(usernameKey)
+        && usernameKey != 'admin'
+        && usernameKey != 'panitia'
+        && adminExists();
+    }
+
+    // 2. Non-sensitive Account Directory (no salts or hashes)
+    match /pas_account_directory/{usernameKey} {
+      allow get: if isValidAccountId(usernameKey);
+      allow list: if resource.data.usernameKey is string && resource.data.active is bool;
+      allow create: if isValidAccountId(usernameKey)
+        && isValidAccountDirectory(incoming())
+        && incoming().usernameKey == usernameKey
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (usernameKey == 'admin' && incoming().role == 'admin' && incoming().active == true && incoming().isBuiltIn == true)
+          || (usernameKey == 'panitia' && incoming().role == 'panitia' && incoming().isBuiltIn == true)
+          || (usernameKey != 'admin' && usernameKey != 'panitia' && adminExists() && incoming().role == 'panitia' && incoming().isBuiltIn == false)
+        );
+      allow update: if isValidAccountId(usernameKey)
+        && isValidAccountDirectory(incoming())
+        && incoming().usernameKey == existing().usernameKey
+        && incoming().username == existing().username
+        && incoming().role == existing().role
+        && incoming().isBuiltIn == existing().isBuiltIn
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (usernameKey != 'admin' || (incoming().active == true && incoming().role == 'admin'))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'jabatan',
+          'active',
+          'updatedAt'
+        ]);
+      allow delete: if isValidAccountId(usernameKey)
+        && usernameKey != 'admin'
+        && usernameKey != 'panitia'
+        && adminExists();
+    }
+
+    // 3. Shared PAS Exam Datasets (9 canonical docs synced across all devices)
+    match /pas_datasets/{datasetId} {
+      allow get: if isValidId(datasetId) && isValidDatasetId(datasetId);
+      allow list: if false;
+      allow create: if isValidId(datasetId)
+        && isValidDatasetId(datasetId)
+        && isValidPasDataset(incoming(), datasetId)
+        && adminExists()
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(datasetId)
+        && isValidDatasetId(datasetId)
+        && isValidPasDataset(incoming(), datasetId)
+        && adminExists()
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'datasetType',
+          'payload',
+          'itemCount',
+          'updatedByUsername',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+  }
+}

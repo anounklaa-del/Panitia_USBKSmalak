@@ -2,71 +2,69 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  Cloud,
   Eye,
   EyeOff,
   KeyRound,
   Lock,
-  LogIn,
   RefreshCw,
   ShieldCheck,
   User,
-  Users,
 } from 'lucide-react';
 import { LOGO_RIGHT_DATA_URI } from '../data/pasData';
+import type { AuthUser, UserRole } from '../utils/authClient';
 import {
-  bootstrapInitialAccounts,
-  fetchAuthStatus,
-  loginWithCredentials,
-  type AuthStatus,
-  type AuthUser,
-  type UserRole,
-} from '../utils/authClient';
+  bootstrapCloudAccounts,
+  fetchCloudAuthStatus,
+  loginCloudWithCredentials,
+  type CloudAuthStatus,
+} from '../utils/cloudSync';
 
 interface LoginGateProps {
-  onAuthenticated: (token: string, user: AuthUser) => void;
+  onAuthenticated: (user: AuthUser) => void;
 }
 
 export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
-  const [status, setStatus] = useState<AuthStatus | null>(null);
-  const [statusLoading, setStatusLoading] = useState(true);
+  const [status, setStatus] = useState<CloudAuthStatus | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [buildingImgError, setBuildingImgError] = useState(false);
 
-  // Standard login state
-  const [username, setUsername] = useState('');
+  // Login form state
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // First-run activation state (when ADMIN_PASSCODE env and local claimed hash are unset)
-  const [setupAdminPassword, setSetupAdminPassword] = useState('');
-  const [setupPanitiaPassword, setSetupPanitiaPassword] = useState('');
-  const [setupLoginAs, setSetupLoginAs] = useState<UserRole>('admin');
+  // One-time Cloud bootstrap setup state (shown only if Cloud has no admin yet)
+  const [adminPassword, setAdminPassword] = useState('');
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
+  const [panitiaPassword, setPanitiaPassword] = useState('');
+  const [confirmPanitiaPassword, setConfirmPanitiaPassword] = useState('');
+  const [loginAsAfterSetup, setLoginAsAfterSetup] = useState<UserRole>('admin');
   const [showSetupPasswords, setShowSetupPasswords] = useState(false);
 
-  const formatUiError = (err: unknown, fallback: string): string => {
-    if (err instanceof Error && err.message && err.message !== '[object Object]') {
-      return err.message;
-    }
-    if (typeof err === 'string' && err.trim() && err.trim() !== '[object Object]') {
-      return err.trim();
-    }
-    return fallback;
-  };
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [buildingImgError, setBuildingImgError] = useState(false);
 
   const loadStatus = async () => {
-    setStatusLoading(true);
+    setLoadingStatus(true);
     setStatusError(null);
     try {
-      const next = await fetchAuthStatus();
-      setStatus(next);
+      const s = await fetchCloudAuthStatus();
+      setStatus(s);
     } catch (err) {
-      setStatusError(
-        formatUiError(err, 'Tidak dapat terhubung ke server autentikasi.'),
-      );
+      let friendly = err instanceof Error ? err.message : 'Gagal memeriksa status Cloud.';
+      try {
+        const parsed = JSON.parse(friendly) as { error?: string };
+        if (parsed && typeof parsed.error === 'string') {
+          friendly = parsed.error;
+        }
+      } catch {
+        // ignore JSON parse failure
+      }
+      setStatusError(friendly);
     } finally {
-      setStatusLoading(false);
+      setLoadingStatus(false);
     }
   };
 
@@ -74,22 +72,37 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
     void loadStatus();
   }, []);
 
+  const formatFriendlyError = (err: unknown, fallback: string): string => {
+    if (err instanceof Error && err.message && err.message !== '[object Object]') {
+      try {
+        const parsed = JSON.parse(err.message) as { error?: string };
+        if (parsed && typeof parsed.error === 'string') {
+          return parsed.error;
+        }
+      } catch {
+        // plain error message
+      }
+      return err.message;
+    }
+    return fallback;
+  };
+
   const handleLoginSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (submitting) return;
     setErrorMessage(null);
 
     if (!username.trim() || !password) {
-      setErrorMessage('Masukkan nama pengguna dan kata sandi untuk melanjutkan.');
+      setErrorMessage('Nama pengguna dan kata sandi wajib diisi.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await loginWithCredentials(username.trim(), password);
-      onAuthenticated(res.token, res.user);
+      const res = await loginCloudWithCredentials(username.trim(), password);
+      onAuthenticated(res.user);
     } catch (err) {
-      setErrorMessage(formatUiError(err, 'Gagal masuk ke sistem.'));
+      setErrorMessage(formatFriendlyError(err, 'Gagal masuk ke sistem.'));
     } finally {
       setSubmitting(false);
     }
@@ -100,28 +113,33 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
     if (submitting) return;
     setErrorMessage(null);
 
-    if (setupAdminPassword.length < 4) {
+    if (adminPassword.length < 4) {
       setErrorMessage('Kata sandi Admin minimal 4 karakter.');
       return;
     }
-    if (setupPanitiaPassword.length < 3) {
+    if (adminPassword !== confirmAdminPassword) {
+      setErrorMessage('Konfirmasi kata sandi Admin tidak cocok.');
+      return;
+    }
+    if (panitiaPassword.length < 3) {
       setErrorMessage('Kata sandi Panitia minimal 3 karakter.');
+      return;
+    }
+    if (panitiaPassword !== confirmPanitiaPassword) {
+      setErrorMessage('Konfirmasi kata sandi Panitia tidak cocok.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await bootstrapInitialAccounts({
-        adminPassword: setupAdminPassword,
-        panitiaPassword: setupPanitiaPassword,
-        loginAs: setupLoginAs,
+      const res = await bootstrapCloudAccounts({
+        adminPassword,
+        panitiaPassword,
+        loginAs: loginAsAfterSetup,
       });
-      onAuthenticated(res.token, res.user);
+      onAuthenticated(res.user);
     } catch (err) {
-      setErrorMessage(
-        formatUiError(err, 'Gagal mengaktifkan kredensial awal.'),
-      );
-      void loadStatus();
+      setErrorMessage(formatFriendlyError(err, 'Gagal menyimpan kredensial awal ke Cloud.'));
     } finally {
       setSubmitting(false);
     }
@@ -186,6 +204,26 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
           >
             Sistem Manajemen Panitia &amp; Pracetak Perangkat Ujian
           </h1>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs text-[#E2E8F0]">
+            <div className="p-3.5 rounded-xl bg-white/10 border border-white/15 backdrop-blur-xs">
+              <div className="flex items-center gap-2 font-bold text-[#FFD43B] mb-1">
+                <Cloud className="w-4 h-4" />
+                <span>Sinkronisasi Cloud Lintas Perangkat</span>
+              </div>
+              <p className="text-[#CBD5E1] leading-relaxed">
+                Data siswa, jadwal, pengawas, berita acara, dan akun login otomatis tersinkron di semua laptop &amp; versi publik.
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-white/10 border border-white/15 backdrop-blur-xs">
+              <div className="flex items-center gap-2 font-bold text-[#FFD43B] mb-1">
+                <ShieldCheck className="w-4 h-4" />
+                <span>Login Username &amp; Sandi</span>
+              </div>
+              <p className="text-[#CBD5E1] leading-relaxed">
+                Masuk langsung memakai username Panitia atau Admin tanpa email. Kredensial cukup dibuat satu kali saja.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Footer Motto */}
@@ -200,22 +238,19 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
       {/* Right Authentication Panel */}
       <section className="lg:col-span-6 xl:col-span-5 flex items-center justify-center p-6 sm:p-10 lg:p-12 bg-[#F8FAFC]">
         <div className="w-full max-w-md bg-white rounded-2xl border border-[#DCE5F2] shadow-[0_8px_30px_rgba(15,23,42,0.06)] p-6 sm:p-8">
-          {statusLoading ? (
-            <div className="space-y-4" aria-busy="true" aria-label="Memeriksa status autentikasi">
-              <div className="h-6 w-48 bg-[#E2E8F0] rounded animate-pulse" />
+          {loadingStatus ? (
+            <div className="space-y-4" aria-busy="true" aria-label="Memeriksa status akun Cloud">
+              <div className="h-6 w-52 bg-[#E2E8F0] rounded animate-pulse" />
               <div className="h-4 w-72 bg-[#F1F5F9] rounded animate-pulse" />
               <div className="h-11 w-full bg-[#F1F5F9] rounded-xl animate-pulse mt-4" />
               <div className="h-11 w-full bg-[#F1F5F9] rounded-xl animate-pulse" />
-              <div className="h-11 w-full bg-[#DCE5F2] rounded-xl animate-pulse mt-2" />
+              <div className="h-11 w-full bg-[#E2E8F0] rounded-xl animate-pulse" />
             </div>
-          ) : statusError ? (
+          ) : statusError || !status ? (
             <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B]">
-                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                <div className="text-xs leading-relaxed">
-                  <div className="font-bold text-sm mb-1">Koneksi Autentikasi Gagal</div>
-                  <p>{statusError}</p>
-                </div>
+              <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] text-xs">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{statusError || 'Tidak dapat menghubungi database Cloud.'}</span>
               </div>
               <button
                 type="button"
@@ -223,38 +258,21 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
                 className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                Muat Ulang Status Server
+                Coba Hubungkan Ulang
               </button>
             </div>
-          ) : status && !status.initialized ? (
-            /* First-run Credential Activation Flow */
-            <form onSubmit={handleBootstrapSubmit} className="space-y-5">
+          ) : !status.initialized ? (
+            /* One-time Cloud Initialization Setup */
+            <form onSubmit={handleBootstrapSubmit} className="space-y-4">
               <div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-[#1D4ED8] mb-1">
-                  <KeyRound className="w-4 h-4" />
-                  <span>Aktivasi Kredensial Pertama Kali</span>
+                <div className="text-xs font-semibold text-[#1D4ED8] mb-1">
+                  Pengaturan Awal Cloud · Cukup 1 Kali Saja
                 </div>
                 <h2 className="font-display font-extrabold text-xl text-[#131C31]">
-                  Tetapkan Kata Sandi Admin &amp; Panitia
+                  Buat Kata Sandi Admin &amp; Panitia
                 </h2>
                 <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
-                  {status.mode === 'static' ? (
-                    <>
-                      Pratinjau statis aktif. Tetapkan sandi akses untuk{' '}
-                      <strong className="text-[#131C31]">admin</strong> dan{' '}
-                      <strong className="text-[#131C31]">Panitia</strong> yang disimpan terenkripsi
-                      (PBKDF2) di peramban ini.
-                    </>
-                  ) : (
-                    <>
-                      Server belum memiliki kata sandi tersimpan. Tetapkan sandi akses untuk{' '}
-                      <strong className="text-[#131C31]">admin</strong> dan{' '}
-                      <strong className="text-[#131C31]">Panitia</strong> untuk mengunci sistem
-                      (dapat di-override lewat Secrets{' '}
-                      <code className="font-mono">ADMIN_PASSCODE</code> /{' '}
-                      <code className="font-mono">PANITIA_PASSCODE</code>).
-                    </>
-                  )}
+                  Setelah disimpan ke Cloud, perangkat atau laptop lain tidak akan diminta membuat sandi lagi dan langsung masuk menggunakan username &amp; sandi ini.
                 </p>
               </div>
 
@@ -268,110 +286,143 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
                 </div>
               )}
 
-              <div className="space-y-3.5">
-                <div>
-                  <label
-                    htmlFor="setup-admin-pw"
-                    className="block text-xs font-semibold text-[#334155] mb-1.5"
+              <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-[#131C31]">
+                    Akun Administrator (<span className="font-mono text-[#1D4ED8]">admin</span>)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSetupPasswords((p) => !p)}
+                    className="text-[11px] font-semibold text-[#1D4ED8] hover:underline inline-flex items-center gap-1"
                   >
-                    Kata Sandi Administrator (<span className="font-mono">admin</span>)
-                  </label>
-                  <div className="relative">
-                    <ShieldCheck className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      id="setup-admin-pw"
-                      type={showSetupPasswords ? 'text' : 'password'}
-                      value={setupAdminPassword}
-                      onChange={(e) => setSetupAdminPassword(e.target.value)}
-                      placeholder="Masukkan kata sandi admin (min. 4 karakter)"
-                      autoComplete="new-password"
-                      required
-                      className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#CBD5E1] bg-white text-sm text-[#131C31] focus:border-[#1D4ED8]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSetupPasswords((v) => !v)}
-                      aria-label={showSetupPasswords ? 'Sembunyikan sandi' : 'Tampilkan sandi'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#131C31] p-1"
-                    >
-                      {showSetupPasswords ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
+                    {showSetupPasswords ? (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5" /> Sembunyikan
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3.5 h-3.5" /> Tampilkan
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="setup-panitia-pw"
-                    className="block text-xs font-semibold text-[#334155] mb-1.5"
-                  >
-                    Kata Sandi Panitia Ujian (<span className="font-mono">Panitia</span>)
+                  <label className="block text-[11px] font-medium text-[#475569] mb-1">
+                    Kata Sandi Admin (min. 4 karakter)
                   </label>
-                  <div className="relative">
-                    <Users className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      id="setup-panitia-pw"
-                      type={showSetupPasswords ? 'text' : 'password'}
-                      value={setupPanitiaPassword}
-                      onChange={(e) => setSetupPanitiaPassword(e.target.value)}
-                      placeholder="Masukkan kata sandi Panitia (min. 3 karakter)"
-                      autoComplete="new-password"
-                      required
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#CBD5E1] bg-white text-sm text-[#131C31] focus:border-[#1D4ED8]"
-                    />
-                  </div>
+                  <input
+                    type={showSetupPasswords ? 'text' : 'password'}
+                    required
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="Masukkan kata sandi Admin"
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-xs text-[#131C31]"
+                  />
                 </div>
 
                 <div>
-                  <div className="block text-xs font-semibold text-[#334155] mb-1.5">
-                    Langsung Masuk Sebagai
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 p-1 bg-[#F1F5F9] border border-[#E2E8F0] rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => setSetupLoginAs('admin')}
-                      className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                        setupLoginAs === 'admin'
-                          ? 'bg-[#1F3864] text-white shadow-2xs'
-                          : 'text-[#475569] hover:text-[#131C31]'
-                      }`}
-                    >
-                      Administrator (admin)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSetupLoginAs('panitia')}
-                      className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                        setupLoginAs === 'panitia'
-                          ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                          : 'text-[#475569] hover:text-[#131C31]'
-                      }`}
-                    >
-                      Panitia Ujian
-                    </button>
-                  </div>
+                  <label className="block text-[11px] font-medium text-[#475569] mb-1">
+                    Konfirmasi Kata Sandi Admin
+                  </label>
+                  <input
+                    type={showSetupPasswords ? 'text' : 'password'}
+                    required
+                    value={confirmAdminPassword}
+                    onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                    placeholder="Ulangi kata sandi Admin"
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-xs text-[#131C31]"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2.5">
+                <div className="text-xs font-bold text-[#131C31]">
+                  Akun Panitia (<span className="font-mono text-[#1D4ED8]">Panitia</span>)
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-[#475569] mb-1">
+                    Kata Sandi Panitia (min. 3 karakter)
+                  </label>
+                  <input
+                    type={showSetupPasswords ? 'text' : 'password'}
+                    required
+                    value={panitiaPassword}
+                    onChange={(e) => setPanitiaPassword(e.target.value)}
+                    placeholder="Masukkan kata sandi Panitia"
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-xs text-[#131C31]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-[#475569] mb-1">
+                    Konfirmasi Kata Sandi Panitia
+                  </label>
+                  <input
+                    type={showSetupPasswords ? 'text' : 'password'}
+                    required
+                    value={confirmPanitiaPassword}
+                    onChange={(e) => setConfirmPanitiaPassword(e.target.value)}
+                    placeholder="Ulangi kata sandi Panitia"
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] bg-white text-xs text-[#131C31]"
+                  />
+                </div>
+              </div>
+
+              <div className="text-xs">
+                <label className="block font-semibold text-[#334155] mb-1">
+                  Masuk langsung sebagai:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLoginAsAfterSetup('admin')}
+                    className={`py-2 px-3 rounded-lg border font-bold text-xs transition-colors ${
+                      loginAsAfterSetup === 'admin'
+                        ? 'bg-[#1F3864] border-[#1F3864] text-white'
+                        : 'bg-white border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC]'
+                    }`}
+                  >
+                    Admin (admin)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoginAsAfterSetup('panitia')}
+                    className={`py-2 px-3 rounded-lg border font-bold text-xs transition-colors ${
+                      loginAsAfterSetup === 'panitia'
+                        ? 'bg-[#1D4ED8] border-[#1D4ED8] text-white'
+                        : 'bg-white border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC]'
+                    }`}
+                  >
+                    Panitia (Panitia)
+                  </button>
                 </div>
               </div>
 
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white text-sm font-bold shadow-xs transition-all duration-150 active:scale-[0.99] whitespace-nowrap"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white text-sm font-bold shadow-xs transition-all duration-150"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                {submitting ? 'Mengaktifkan Akses...' : 'Aktifkan & Masuk Aplikasi'}
+                {submitting ? 'Menyimpan ke Cloud...' : 'Aktifkan Cloud & Masuk'}
               </button>
             </form>
           ) : (
-            /* Standard Server-Verified Login Form */
+            /* Standard Username & Password Login */
             <form onSubmit={handleLoginSubmit} className="space-y-5">
               <div>
+                <div className="text-xs font-semibold text-[#1D4ED8] mb-1">
+                  Autentikasi Akun Terdaftar · Sinkron Cloud
+                </div>
                 <h2 className="font-display font-extrabold text-2xl text-[#131C31]">
                   Masuk Portal Panitia
                 </h2>
+                <p className="text-xs text-[#64748B] mt-1.5 leading-relaxed">
+                  Masukkan nama pengguna (user) dan kata sandi resmi Panitia atau Admin SMA Negeri 1 Alalak.
+                </p>
               </div>
 
               {errorMessage && (
@@ -384,28 +435,25 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
                 </div>
               )}
 
-              <div className="space-y-3.5">
+              <div className="space-y-3.5 text-xs">
                 <div>
                   <label
                     htmlFor="login-username"
-                    className="block text-xs font-semibold text-[#334155] mb-1.5"
+                    className="block font-semibold text-[#334155] mb-1.5"
                   >
                     Nama Pengguna (User)
                   </label>
                   <div className="relative">
-                    <User className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <User className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       id="login-username"
                       type="text"
-                      value={username}
-                      onChange={(e) => {
-                        setUsername(e.target.value);
-                        if (errorMessage) setErrorMessage(null);
-                      }}
-                      placeholder="Masukkan nama pengguna"
                       autoComplete="username"
                       required
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#CBD5E1] bg-white text-sm text-[#131C31] focus:border-[#1D4ED8]"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="admin / Panitia / username panitia"
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#CBD5E1] bg-white text-sm font-mono text-[#131C31] focus:border-[#1D4ED8]"
                     />
                   </div>
                 </div>
@@ -413,36 +461,29 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
                 <div>
                   <label
                     htmlFor="login-password"
-                    className="block text-xs font-semibold text-[#334155] mb-1.5"
+                    className="block font-semibold text-[#334155] mb-1.5"
                   >
                     Kata Sandi (Password)
                   </label>
                   <div className="relative">
-                    <Lock className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <Lock className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       id="login-password"
                       type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (errorMessage) setErrorMessage(null);
-                      }}
-                      placeholder="Masukkan kata sandi"
                       autoComplete="current-password"
                       required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Masukkan kata sandi"
                       className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#CBD5E1] bg-white text-sm text-[#131C31] focus:border-[#1D4ED8]"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      aria-label={showPassword ? 'Sembunyikan sandi' : 'Tampilkan sandi'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#131C31] p-1"
+                      onClick={() => setShowPassword((p) => !p)}
+                      aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#131C31]"
                     >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
@@ -451,11 +492,17 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white text-sm font-bold shadow-xs transition-all duration-150 active:scale-[0.99] whitespace-nowrap"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white text-sm font-bold shadow-xs transition-all duration-150 active:scale-[0.99]"
               >
-                <LogIn className="w-4 h-4" />
-                {submitting ? 'Memverifikasi Sesi...' : 'Masuk ke Portal Panitia'}
+                <KeyRound className="w-4 h-4" />
+                {submitting ? 'Memverifikasi di Cloud...' : 'Masuk ke Sistem'}
               </button>
+
+              <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3.5 text-[11px] text-[#475569] leading-relaxed">
+                Akun bawaan: <span className="font-mono font-semibold text-[#131C31]">admin</span>{' '}
+                (Administrator) dan{' '}
+                <span className="font-mono font-semibold text-[#131C31]">Panitia</span>, atau username panitia tambahan yang didaftarkan Admin.
+              </div>
             </form>
           )}
         </div>

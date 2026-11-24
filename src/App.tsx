@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   Box,
@@ -46,7 +46,10 @@ import {
 import { RulesAndBellPagesBlock } from './components/RulesAndBellRenderer';
 import { RulesAndBellWorkspace } from './components/RulesAndBellWorkspace';
 import { SeatingSheetPagesBlock } from './components/SeatingPlanRenderer';
-import { SeatingPlanStudio } from './components/SeatingPlanStudio';
+import {
+  SeatingPlanStudio,
+  type RoomAllocationOverride,
+} from './components/SeatingPlanStudio';
 import { SettingsDrawer } from './components/SettingsDrawer';
 import { StudentDataManager } from './components/StudentDataManager';
 import { StudentRosterPrintBlock } from './components/StudentRosterPrintRenderer';
@@ -101,7 +104,7 @@ import {
 } from './types/prepress';
 import { buildStructuredZipArchive } from './utils/archiveExporter';
 import { buildAttendancePages } from './utils/attendanceBuilder';
-import { logoutSession, type AuthUser } from './utils/authClient';
+import type { AuthUser } from './utils/authClient';
 import {
   buildBeritaAcaraPrintPages,
   buildBeritaAcaraRecords,
@@ -110,6 +113,13 @@ import {
   type BeritaAcaraOverride,
   type BeritaAcaraRecord,
 } from './utils/beritaAcaraStore';
+import {
+  ALL_PAS_DATASET_IDS,
+  saveCloudDataset,
+  subscribeToCloudDataset,
+  verifyCloudSessionUser,
+  type PasDatasetId,
+} from './utils/cloudSync';
 import {
   buildDeskAssignmentLookup,
   buildDeskStickers,
@@ -159,9 +169,15 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+const CLOUD_SESSION_KEY = 'pas_cloud_session_v1';
+const CLOUD_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
 export default function App() {
-  const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [cloudFatalError, setCloudFatalError] = useState<Error | null>(null);
+  const [cloudSyncing, setCloudSyncing] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [students, setStudents] = useState<StudentRecord[]>(() => {
     try {
       const saved = localStorage.getItem('pas_students_custom_v1');
@@ -292,6 +308,15 @@ export default function App() {
   const [beritaAcaraPrintRecords, setBeritaAcaraPrintRecords] = useState<
     BeritaAcaraRecord[] | null
   >(null);
+  const [roomOverrides, setRoomOverrides] = useState<Record<string, RoomAllocationOverride>>(() => {
+    try {
+      const saved = localStorage.getItem('pas_room_allocations_v1');
+      if (saved) return JSON.parse(saved) as Record<string, RoomAllocationOverride>;
+    } catch {
+      // ignore storage failure
+    }
+    return {};
+  });
   const [rulesBellConfig, setRulesBellConfig] = useState<RulesAndBellConfig>(() =>
     loadRulesBellConfig(),
   );
@@ -307,6 +332,406 @@ export default function App() {
   const [csvFeedback, setCsvFeedback] = useState<string | null>(null);
   const pendingPrintRef = useRef(false);
 
+  const settingsBundle = useMemo(
+    () => ({
+      schoolSettings,
+      prepressConfig: config,
+      stickerConfig,
+      seatingConfig,
+      attendanceConfig,
+      beritaAcaraConfig,
+    }),
+    [schoolSettings, config, stickerConfig, seatingConfig, attendanceConfig, beritaAcaraConfig],
+  );
+
+  const latestCloudStateRef = useRef({
+    students,
+    committeeMembers,
+    scheduleEntries,
+    proctors,
+    proctorMatrix,
+    beritaAcaraOverrides,
+    roomOverrides,
+    rulesBellConfig,
+    settingsBundle,
+    authUser,
+  });
+  latestCloudStateRef.current = {
+    students,
+    committeeMembers,
+    scheduleEntries,
+    proctors,
+    proctorMatrix,
+    beritaAcaraOverrides,
+    roomOverrides,
+    rulesBellConfig,
+    settingsBundle,
+    authUser,
+  };
+
+  const lastAppliedSettingsJsonRef = useRef<string>(JSON.stringify(settingsBundle));
+  const lastAppliedMatrixJsonRef = useRef<string>(JSON.stringify(proctorMatrix));
+  const cloudSyncReadyRef = useRef<boolean>(false);
+
+  const buildDatasetEnvelope = useCallback(
+    (
+      datasetId: PasDatasetId,
+      state = latestCloudStateRef.current,
+    ): { payload: { items?: unknown[]; data?: Record<string, unknown> }; itemCount: number } => {
+      switch (datasetId) {
+        case 'students': {
+          const items = state.students.slice(0, 2000);
+          return { payload: { items }, itemCount: items.length };
+        }
+        case 'committee': {
+          const items = state.committeeMembers.slice(0, 2000);
+          return { payload: { items }, itemCount: items.length };
+        }
+        case 'schedules': {
+          const items = state.scheduleEntries.slice(0, 2000);
+          return { payload: { items }, itemCount: items.length };
+        }
+        case 'proctors': {
+          const items = state.proctors.slice(0, 2000);
+          return { payload: { items }, itemCount: items.length };
+        }
+        case 'proctor_matrix': {
+          const items = state.proctorMatrix.slice(0, 2000);
+          return { payload: { items }, itemCount: items.length };
+        }
+        case 'berita_acara_overrides': {
+          const keys = Object.keys(state.beritaAcaraOverrides);
+          return {
+            payload: { data: state.beritaAcaraOverrides as Record<string, unknown> },
+            itemCount: Math.min(2000, keys.length),
+          };
+        }
+        case 'room_allocations': {
+          const keys = Object.keys(state.roomOverrides);
+          return {
+            payload: { data: state.roomOverrides as Record<string, unknown> },
+            itemCount: Math.min(2000, keys.length),
+          };
+        }
+        case 'rules_bell': {
+          return {
+            payload: { data: state.rulesBellConfig as unknown as Record<string, unknown> },
+            itemCount: 1,
+          };
+        }
+        case 'settings_configs': {
+          return {
+            payload: { data: state.settingsBundle as unknown as Record<string, unknown> },
+            itemCount: 1,
+          };
+        }
+      }
+    },
+    [],
+  );
+
+  const pushDatasetToCloud = useCallback(
+    async (
+      datasetId: PasDatasetId,
+      payload: { items?: unknown[]; data?: Record<string, unknown> },
+      itemCount: number,
+    ) => {
+      const currentAuthUser = latestCloudStateRef.current.authUser;
+      if (!currentAuthUser) return;
+      setCloudSyncing(true);
+      try {
+        await saveCloudDataset(datasetId, payload, itemCount, currentAuthUser.username);
+        setLastSyncedAt(
+          new Intl.DateTimeFormat('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }).format(new Date()),
+        );
+      } catch (err) {
+        setCloudFatalError(err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        setCloudSyncing(false);
+      }
+    },
+    [],
+  );
+
+  const handleForceCloudSync = useCallback(async () => {
+    const currentAuthUser = latestCloudStateRef.current.authUser;
+    if (!currentAuthUser) return;
+    setCloudSyncing(true);
+    try {
+      for (const datasetId of ALL_PAS_DATASET_IDS) {
+        const env = buildDatasetEnvelope(datasetId);
+        await saveCloudDataset(datasetId, env.payload, env.itemCount, currentAuthUser.username);
+      }
+      lastAppliedSettingsJsonRef.current = JSON.stringify(latestCloudStateRef.current.settingsBundle);
+      lastAppliedMatrixJsonRef.current = JSON.stringify(latestCloudStateRef.current.proctorMatrix);
+      setLastSyncedAt(
+        new Intl.DateTimeFormat('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).format(new Date()),
+      );
+    } finally {
+      setCloudSyncing(false);
+    }
+  }, [buildDatasetEnvelope]);
+
+  // Restore active username session against Cloud Firestore on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = sessionStorage.getItem(CLOUD_SESSION_KEY);
+        if (!raw) {
+          if (!cancelled) setAuthChecking(false);
+          return;
+        }
+        const parsed = JSON.parse(raw) as { username?: string; expiresAt?: number };
+        if (
+          !parsed ||
+          typeof parsed.username !== 'string' ||
+          typeof parsed.expiresAt !== 'number' ||
+          parsed.expiresAt <= Date.now()
+        ) {
+          sessionStorage.removeItem(CLOUD_SESSION_KEY);
+          if (!cancelled) setAuthChecking(false);
+          return;
+        }
+        const verified = await verifyCloudSessionUser(parsed.username);
+        if (!cancelled) {
+          if (verified) {
+            setAuthUser(verified);
+          } else {
+            sessionStorage.removeItem(CLOUD_SESSION_KEY);
+          }
+        }
+      } catch {
+        sessionStorage.removeItem(CLOUD_SESSION_KEY);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Attach real-time Firestore listeners once authenticated
+  useEffect(() => {
+    if (!authUser) {
+      cloudSyncReadyRef.current = false;
+      return;
+    }
+
+    const seededIds = new Set<PasDatasetId>();
+    const unsubs: Array<() => void> = [];
+
+    for (const datasetId of ALL_PAS_DATASET_IDS) {
+      const unsub = subscribeToCloudDataset(
+        datasetId,
+        (exists, payload) => {
+          cloudSyncReadyRef.current = true;
+
+          if (!exists || !payload) {
+            if (!seededIds.has(datasetId)) {
+              seededIds.add(datasetId);
+              const env = buildDatasetEnvelope(datasetId);
+              void pushDatasetToCloud(datasetId, env.payload, env.itemCount);
+            }
+            return;
+          }
+
+          switch (datasetId) {
+            case 'students': {
+              if (Array.isArray(payload.items) && payload.items.length > 0) {
+                const nextStudents = payload.items as StudentRecord[];
+                setStudents(nextStudents);
+                setSelectedStudentNo((prev) =>
+                  nextStudents.some((s) => s.no === prev) ? prev : nextStudents[0].no,
+                );
+                try {
+                  localStorage.setItem('pas_students_custom_v1', JSON.stringify(nextStudents));
+                } catch {
+                  // ignore
+                }
+              }
+              break;
+            }
+            case 'committee': {
+              if (Array.isArray(payload.items) && payload.items.length > 0) {
+                const nextCommittee = payload.items as CommitteeMember[];
+                setCommitteeMembers(nextCommittee);
+                try {
+                  localStorage.setItem('pas_committee_members_v1', JSON.stringify(nextCommittee));
+                } catch {
+                  // ignore
+                }
+              }
+              break;
+            }
+            case 'schedules': {
+              if (Array.isArray(payload.items)) {
+                const nextSchedules = payload.items as ExamScheduleEntry[];
+                setScheduleEntries(nextSchedules);
+                saveScheduleEntries(
+                  nextSchedules,
+                  getAllKnownClasses(latestCloudStateRef.current.students),
+                );
+              }
+              break;
+            }
+            case 'proctors': {
+              if (Array.isArray(payload.items) && payload.items.length > 0) {
+                const nextProctors = payload.items as ProctorRecord[];
+                setProctors(nextProctors);
+                saveProctors(nextProctors);
+              }
+              break;
+            }
+            case 'proctor_matrix': {
+              if (Array.isArray(payload.items)) {
+                const nextMatrix = payload.items as ProctorMatrixSession[];
+                lastAppliedMatrixJsonRef.current = JSON.stringify(nextMatrix);
+                setProctorMatrix(nextMatrix);
+                saveProctorMatrix(nextMatrix);
+              }
+              break;
+            }
+            case 'berita_acara_overrides': {
+              if (payload.data && typeof payload.data === 'object') {
+                const nextOverrides = payload.data as Record<string, BeritaAcaraOverride>;
+                setBeritaAcaraOverrides(nextOverrides);
+                saveBeritaAcaraOverrides(nextOverrides);
+              }
+              break;
+            }
+            case 'room_allocations': {
+              if (payload.data && typeof payload.data === 'object') {
+                const nextRooms = payload.data as Record<string, RoomAllocationOverride>;
+                setRoomOverrides(nextRooms);
+                try {
+                  localStorage.setItem('pas_room_allocations_v1', JSON.stringify(nextRooms));
+                } catch {
+                  // ignore
+                }
+              }
+              break;
+            }
+            case 'rules_bell': {
+              if (payload.data && typeof payload.data === 'object') {
+                const nextRules: RulesAndBellConfig = {
+                  ...DEFAULT_RULES_BELL_CONFIG,
+                  ...(payload.data as Partial<RulesAndBellConfig>),
+                };
+                setRulesBellConfig(nextRules);
+                saveRulesBellConfig(nextRules);
+              }
+              break;
+            }
+            case 'settings_configs': {
+              if (payload.data && typeof payload.data === 'object') {
+                const d = payload.data as Partial<SystemBackupPayload>;
+                const nextSchool: SchoolSettings = {
+                  ...DEFAULT_SCHOOL_SETTINGS,
+                  ...(d.schoolSettings ?? {}),
+                };
+                const nextPrepress: PrepressConfig = {
+                  ...DEFAULT_PREPRESS_CONFIG,
+                  ...(d.prepressConfig ?? {}),
+                };
+                const nextSticker: StickerConfig = {
+                  ...DEFAULT_STICKER_CONFIG,
+                  ...(d.stickerConfig ?? {}),
+                };
+                const nextSeating: SeatingConfig = {
+                  ...DEFAULT_SEATING_CONFIG,
+                  ...(d.seatingConfig ?? {}),
+                };
+                const nextAttendance: AttendanceConfig = {
+                  ...DEFAULT_ATTENDANCE_CONFIG,
+                  ...(d.attendanceConfig ?? {}),
+                };
+                const nextBa: BeritaAcaraConfig = {
+                  ...DEFAULT_BERITA_ACARA_CONFIG,
+                  ...(d.beritaAcaraConfig ?? {}),
+                };
+
+                const mergedBundle = {
+                  schoolSettings: nextSchool,
+                  prepressConfig: nextPrepress,
+                  stickerConfig: nextSticker,
+                  seatingConfig: nextSeating,
+                  attendanceConfig: nextAttendance,
+                  beritaAcaraConfig: nextBa,
+                };
+                lastAppliedSettingsJsonRef.current = JSON.stringify(mergedBundle);
+
+                setSchoolSettings(nextSchool);
+                setConfig(nextPrepress);
+                setStickerConfig(nextSticker);
+                setSeatingConfig(nextSeating);
+                setAttendanceConfig(nextAttendance);
+                setBeritaAcaraConfig(nextBa);
+
+                try {
+                  localStorage.setItem('pas_school_settings_v1', JSON.stringify(nextSchool));
+                  localStorage.setItem('pas_prepress_v2_cfg', JSON.stringify(nextPrepress));
+                  localStorage.setItem('pas_sticker_cfg_v2', JSON.stringify(nextSticker));
+                  localStorage.setItem('pas_seating_cfg_v3', JSON.stringify(nextSeating));
+                  localStorage.setItem('pas_attendance_cfg_v3', JSON.stringify(nextAttendance));
+                  localStorage.setItem('pas_berita_acara_cfg_v2', JSON.stringify(nextBa));
+                } catch {
+                  // ignore
+                }
+              }
+              break;
+            }
+          }
+
+          setLastSyncedAt(
+            new Intl.DateTimeFormat('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            }).format(new Date()),
+          );
+        },
+        (err) => {
+          setCloudFatalError(err instanceof Error ? err : new Error(String(err)));
+        },
+      );
+      unsubs.push(unsub);
+    }
+
+    return () => {
+      for (const unsub of unsubs) {
+        unsub();
+      }
+    };
+  }, [authUser?.username, authUser?.role, buildDatasetEnvelope, pushDatasetToCloud]);
+
+  // Debounced Cloud Sync for settings_configs (avoids flooding Firestore on slider/input changes)
+  useEffect(() => {
+    if (!authUser || !cloudSyncReadyRef.current) return;
+    const serialized = JSON.stringify(settingsBundle);
+    if (serialized === lastAppliedSettingsJsonRef.current) return;
+
+    const timer = setTimeout(() => {
+      lastAppliedSettingsJsonRef.current = serialized;
+      void pushDatasetToCloud(
+        'settings_configs',
+        { data: settingsBundle as unknown as Record<string, unknown> },
+        1,
+      );
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [settingsBundle, authUser, pushDatasetToCloud]);
+
   const persistStudents = (next: StudentRecord[]) => {
     setStudents(next);
     try {
@@ -314,6 +739,8 @@ export default function App() {
     } catch {
       // ignore storage quota errors
     }
+    const items = next.slice(0, 2000);
+    void pushDatasetToCloud('students', { items }, items.length);
   };
 
   const updateConfig = (patch: Partial<PrepressConfig>) => {
@@ -380,6 +807,11 @@ export default function App() {
     setRulesBellConfig((prev) => {
       const next = { ...prev, ...patch };
       saveRulesBellConfig(next);
+      void pushDatasetToCloud(
+        'rules_bell',
+        { data: next as unknown as Record<string, unknown> },
+        1,
+      );
       return next;
     });
   };
@@ -387,6 +819,25 @@ export default function App() {
   const resetRulesBellConfig = () => {
     setRulesBellConfig(DEFAULT_RULES_BELL_CONFIG);
     saveRulesBellConfig(DEFAULT_RULES_BELL_CONFIG);
+    void pushDatasetToCloud(
+      'rules_bell',
+      { data: DEFAULT_RULES_BELL_CONFIG as unknown as Record<string, unknown> },
+      1,
+    );
+  };
+
+  const updateRoomOverrides = (next: Record<string, RoomAllocationOverride>) => {
+    setRoomOverrides(next);
+    try {
+      localStorage.setItem('pas_room_allocations_v1', JSON.stringify(next));
+    } catch {
+      // ignore storage quota errors
+    }
+    void pushDatasetToCloud(
+      'room_allocations',
+      { data: next as Record<string, unknown> },
+      Math.min(2000, Object.keys(next).length),
+    );
   };
 
   const handleSaveBeritaAcaraOverride = (id: string, override: BeritaAcaraOverride | null) => {
@@ -398,6 +849,11 @@ export default function App() {
         next[id] = override;
       }
       saveBeritaAcaraOverrides(next);
+      void pushDatasetToCloud(
+        'berita_acara_overrides',
+        { data: next as Record<string, unknown> },
+        Math.min(2000, Object.keys(next).length),
+      );
       return next;
     });
   };
@@ -452,6 +908,24 @@ export default function App() {
     if (payload.beritaAcaraOverrides && typeof payload.beritaAcaraOverrides === 'object') {
       setBeritaAcaraOverrides(payload.beritaAcaraOverrides);
       saveBeritaAcaraOverrides(payload.beritaAcaraOverrides);
+      void pushDatasetToCloud(
+        'berita_acara_overrides',
+        { data: payload.beritaAcaraOverrides as Record<string, unknown> },
+        Math.min(2000, Object.keys(payload.beritaAcaraOverrides).length),
+      );
+    }
+    if (payload.roomOverrides && typeof payload.roomOverrides === 'object') {
+      updateRoomOverrides(payload.roomOverrides);
+    }
+    if (payload.rulesBellConfig && typeof payload.rulesBellConfig === 'object') {
+      const mergedRules = { ...DEFAULT_RULES_BELL_CONFIG, ...payload.rulesBellConfig };
+      setRulesBellConfig(mergedRules);
+      saveRulesBellConfig(mergedRules);
+      void pushDatasetToCloud(
+        'rules_bell',
+        { data: mergedRules as unknown as Record<string, unknown> },
+        1,
+      );
     }
   };
 
@@ -494,6 +968,8 @@ export default function App() {
     } catch {
       // ignore
     }
+    const items = STUDENTS_MASTER.slice(0, 2000);
+    void pushDatasetToCloud('students', { items }, items.length);
   };
 
   const persistCommitteeMembers = (next: CommitteeMember[]) => {
@@ -503,6 +979,8 @@ export default function App() {
     } catch {
       // ignore storage quota errors
     }
+    const items = next.slice(0, 2000);
+    void pushDatasetToCloud('committee', { items }, items.length);
   };
 
   const handleAddCommitteeMember = (member: CommitteeMember) => {
@@ -526,6 +1004,8 @@ export default function App() {
     } catch {
       // ignore
     }
+    const items = COMMITTEE_MASTER.slice(0, 2000);
+    void pushDatasetToCloud('committee', { items }, items.length);
   };
 
   const activeChair = useMemo(
@@ -550,6 +1030,8 @@ export default function App() {
   const persistScheduleEntries = (next: ExamScheduleEntry[]) => {
     setScheduleEntries(next);
     saveScheduleEntries(next, knownClasses);
+    const items = next.slice(0, 2000);
+    void pushDatasetToCloud('schedules', { items }, items.length);
   };
 
   const handleAddScheduleEntries = (newEntries: ExamScheduleEntry[]) => {
@@ -575,6 +1057,8 @@ export default function App() {
   const handleResetSchedules = () => {
     const defaults = resetScheduleEntriesToDefault();
     setScheduleEntries(defaults);
+    const items = defaults.slice(0, 2000);
+    void pushDatasetToCloud('schedules', { items }, items.length);
   };
 
   useEffect(() => {
@@ -587,9 +1071,19 @@ export default function App() {
       );
       if (areMatricesEqual(prev, synced)) return prev;
       saveProctorMatrix(synced);
+      const serialized = JSON.stringify(synced);
+      if (
+        cloudSyncReadyRef.current &&
+        serialized !== lastAppliedMatrixJsonRef.current &&
+        latestCloudStateRef.current.authUser
+      ) {
+        lastAppliedMatrixJsonRef.current = serialized;
+        const items = synced.slice(0, 2000);
+        void pushDatasetToCloud('proctor_matrix', { items }, items.length);
+      }
       return synced;
     });
-  }, [scheduleEntries, students, proctors]);
+  }, [scheduleEntries, students, proctors, pushDatasetToCloud]);
 
   useEffect(() => {
     syncLiveProctorCache(proctors, proctorMatrix);
@@ -609,11 +1103,16 @@ export default function App() {
   const persistProctors = (next: ProctorRecord[]) => {
     setProctors(next);
     saveProctors(next);
+    const items = next.slice(0, 2000);
+    void pushDatasetToCloud('proctors', { items }, items.length);
   };
 
   const persistProctorMatrix = (next: ProctorMatrixSession[]) => {
+    lastAppliedMatrixJsonRef.current = JSON.stringify(next);
     setProctorMatrix(next);
     saveProctorMatrix(next);
+    const items = next.slice(0, 2000);
+    void pushDatasetToCloud('proctor_matrix', { items }, items.length);
   };
 
   const handleAddProctor = (proctor: ProctorRecord) => {
@@ -670,10 +1169,14 @@ export default function App() {
   const handleResetProctors = () => {
     const defaultProctors = resetProctorsToDefault();
     const defaultMatrix = resetProctorMatrixToDefault();
-    setProctors(defaultProctors);
-    setProctorMatrix(
-      buildScheduleSyncedProctorMatrix(scheduleEntries, students, defaultProctors, defaultMatrix),
+    const syncedMatrix = buildScheduleSyncedProctorMatrix(
+      scheduleEntries,
+      students,
+      defaultProctors,
+      defaultMatrix,
     );
+    persistProctors(defaultProctors);
+    persistProctorMatrix(syncedMatrix);
   };
 
   const classList = useMemo(
@@ -1114,17 +1617,29 @@ export default function App() {
     setActiveTab(tab);
   };
 
-  const handleAuthenticated = (token: string, user: AuthUser) => {
-    setAuthToken(token);
+  const handleAuthenticated = (user: AuthUser) => {
+    try {
+      sessionStorage.setItem(
+        CLOUD_SESSION_KEY,
+        JSON.stringify({
+          username: user.username,
+          expiresAt: Date.now() + CLOUD_SESSION_TTL_MS,
+        }),
+      );
+    } catch {
+      // ignore storage errors
+    }
     setAuthUser(user);
-    setActiveTab('dashboard');
+    setAuthChecking(false);
   };
 
   const handleLogout = () => {
-    if (authToken) {
-      void logoutSession(authToken);
+    try {
+      sessionStorage.removeItem(CLOUD_SESSION_KEY);
+    } catch {
+      // ignore
     }
-    setAuthToken(null);
+    cloudSyncReadyRef.current = false;
     setAuthUser(null);
     setSettingsOpen(false);
     setActiveTab('dashboard');
@@ -1207,7 +1722,23 @@ export default function App() {
             ? 297
             : geo.paperH;
 
-  if (!authToken || !authUser) {
+  if (cloudFatalError) {
+    throw cloudFatalError;
+  }
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen w-screen bg-[#EBF1FA] flex items-center justify-center p-6">
+        <div className="w-full max-w-sm bg-white rounded-2xl border border-[#DCE5F2] p-6 space-y-3 shadow-xs">
+          <div className="h-5 w-44 bg-[#E2E8F0] rounded animate-pulse" />
+          <div className="h-3.5 w-64 bg-[#F1F5F9] rounded animate-pulse" />
+          <div className="h-10 w-full bg-[#F1F5F9] rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser) {
     return <LoginGate onAuthenticated={handleAuthenticated} />;
   }
 
@@ -2204,6 +2735,8 @@ export default function App() {
                 paperConfig={config}
                 seatingConfig={seatingConfig}
                 schedulesMap={schedulesByClass}
+                roomOverrides={roomOverrides}
+                onRoomOverridesChange={updateRoomOverrides}
                 pageIndex={safeSeatingPageIdx}
                 onPageIndexChange={setSeatingPageIndex}
                 onPaperConfigChange={updateConfig}
@@ -2339,8 +2872,11 @@ export default function App() {
                 proctors={proctors}
                 proctorMatrix={proctorMatrix}
                 beritaAcaraOverrides={beritaAcaraOverrides}
-                authToken={authToken}
+                roomOverrides={roomOverrides}
+                rulesBellConfig={rulesBellConfig}
                 authUser={authUser}
+                cloudSyncInfo={{ lastSyncedAt, syncing: cloudSyncing }}
+                onForceCloudSync={handleForceCloudSync}
                 onUpdateSchoolSettings={updateSchoolSettings}
                 onAcademicYearChange={(year) => updateAttendanceConfig({ academicYear: year })}
                 onUpdatePaperConfig={updateConfig}
@@ -2353,7 +2889,6 @@ export default function App() {
             )}
             {activeTab === 'accounts' && authUser.role === 'admin' && (
               <AccountAccessManager
-                authToken={authToken}
                 currentUser={authUser}
                 committeeMembers={committeeMembers}
                 onNavigateTab={handleSelectWorkspaceTab}

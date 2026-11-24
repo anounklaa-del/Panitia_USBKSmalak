@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "PasAccount": {
+      "title": "PasAccount",
+      "description": "Cloud-synced username and PBKDF2-SHA256 credential record stored under /pas_accounts/{usernameKey}.",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64
+        },
+        "usernameKey": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9._\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "jabatan": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "panitia"],
+          "maxLength": 16
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "isBuiltIn": {
+          "type": "boolean"
+        },
+        "saltHex": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 128,
+          "pattern": "^[a-f0-9]+$"
+        },
+        "hashHex": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 256,
+          "pattern": "^[a-f0-9]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "username",
+        "usernameKey",
+        "displayName",
+        "jabatan",
+        "role",
+        "active",
+        "isBuiltIn",
+        "saltHex",
+        "hashHex",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PasAccountDirectory": {
+      "title": "PasAccountDirectory",
+      "description": "Public-safe account directory metadata (no password salts or hashes) stored under /pas_account_directory/{usernameKey}.",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64
+        },
+        "usernameKey": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9._\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "jabatan": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "panitia"],
+          "maxLength": 16
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "isBuiltIn": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "username",
+        "usernameKey",
+        "displayName",
+        "jabatan",
+        "role",
+        "active",
+        "isBuiltIn",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PasDataset": {
+      "title": "PasDataset",
+      "description": "Shared cloud-synced PAS exam dataset document (students, committee, schedules, proctors, proctor_matrix, berita_acara_overrides, room_allocations, rules_bell, settings_configs).",
+      "type": "object",
+      "properties": {
+        "datasetType": {
+          "type": "string",
+          "enum": [
+            "students",
+            "committee",
+            "schedules",
+            "proctors",
+            "proctor_matrix",
+            "berita_acara_overrides",
+            "room_allocations",
+            "rules_bell",
+            "settings_configs"
+          ],
+          "maxLength": 40
+        },
+        "payload": {
+          "type": "object",
+          "description": "Structured dataset payload containing native items array or data map."
+        },
+        "itemCount": {
+          "type": "integer"
+        },
+        "updatedByUsername": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["datasetType", "payload", "itemCount", "updatedByUsername", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/pas_accounts/{usernameKey}": {
+      "schema": { "$ref": "#/entities/PasAccount" },
+      "description": "Cloud username and PBKDF2-SHA256 credential store synced across all devices."
+    },
+    "/pas_account_directory/{usernameKey}": {
+      "schema": { "$ref": "#/entities/PasAccountDirectory" },
+      "description": "Non-sensitive account list metadata displayed in Admin account management."
+    },
+    "/pas_datasets/{datasetId}": {
+      "schema": { "$ref": "#/entities/PasDataset" },
+      "description": "Cloud-synced exam datasets and configurations shared across devices."
+    }
+  }
+}

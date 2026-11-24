@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
+  Cloud,
   Database,
   Download,
   Eye,
@@ -17,10 +18,10 @@ import {
   Info,
   KeyRound,
   Lightbulb,
-  Lock,
   Mail,
   Monitor,
   Phone,
+  RefreshCw,
   RotateCcw,
   Save,
   Settings,
@@ -35,6 +36,7 @@ import {
 import type { CommitteeMember } from '../data/committeeData';
 import { LOGO_RIGHT_DATA_URI, type StudentRecord } from '../data/pasData';
 import type { ProctorMatrixSession, ProctorRecord } from '../data/proctorData';
+import type { RulesAndBellConfig } from '../data/rulesAndBellData';
 import {
   PAPER_DIMENSIONS,
   type AttendanceConfig,
@@ -49,14 +51,15 @@ import {
   type StickerConfig,
   type StickerGroupingMode,
 } from '../types/prepress';
-import {
-  changeOwnPassword,
-  fetchManagedAccounts,
-  type AuthUser,
-  type ManagedAccount,
-} from '../utils/authClient';
+import type { AuthUser } from '../utils/authClient';
 import type { BeritaAcaraOverride } from '../utils/beritaAcaraStore';
+import {
+  changeOwnCloudPassword,
+  fetchCloudAccountsDirectory,
+  type CloudManagedAccount,
+} from '../utils/cloudSync';
 import type { ExamScheduleEntry } from '../utils/scheduleStore';
+import type { RoomAllocationOverride } from './SeatingPlanStudio';
 
 type SettingsSubTab =
   | 'identitas'
@@ -81,6 +84,8 @@ export interface SystemBackupPayload {
   proctors: ProctorRecord[];
   proctorMatrix: ProctorMatrixSession[];
   beritaAcaraOverrides: Record<string, BeritaAcaraOverride>;
+  roomOverrides?: Record<string, RoomAllocationOverride>;
+  rulesBellConfig?: RulesAndBellConfig;
 }
 
 interface SystemSettingsWorkspaceProps {
@@ -97,8 +102,14 @@ interface SystemSettingsWorkspaceProps {
   proctors: ProctorRecord[];
   proctorMatrix: ProctorMatrixSession[];
   beritaAcaraOverrides: Record<string, BeritaAcaraOverride>;
-  authToken: string;
+  roomOverrides?: Record<string, RoomAllocationOverride>;
+  rulesBellConfig?: RulesAndBellConfig;
   authUser: AuthUser;
+  cloudSyncInfo?: {
+    lastSyncedAt: string | null;
+    syncing: boolean;
+  };
+  onForceCloudSync?: () => Promise<void>;
   onUpdateSchoolSettings: (patch: Partial<SchoolSettings>) => void;
   onAcademicYearChange: (year: string) => void;
   onUpdatePaperConfig: (patch: Partial<PrepressConfig>) => void;
@@ -136,8 +147,11 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
   proctors,
   proctorMatrix,
   beritaAcaraOverrides,
-  authToken,
+  roomOverrides,
+  rulesBellConfig,
   authUser,
+  cloudSyncInfo,
+  onForceCloudSync,
   onUpdateSchoolSettings,
   onAcademicYearChange,
   onUpdatePaperConfig,
@@ -159,14 +173,17 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
   const [faqModalOpen, setFaqModalOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
 
-  // Change own password state inside Pengguna tab
+  // Cloud accounts summary for Admin inside Pengguna tab
+  const [cloudAccounts, setCloudAccounts] = useState<CloudManagedAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [cloudSyncBusy, setCloudSyncBusy] = useState(false);
+
+  // Change own password state
   const [currPw, setCurrPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [pwBusy, setPwBusy] = useState(false);
-  const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
 
   useEffect(() => {
     setDraft(schoolSettings);
@@ -184,12 +201,43 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
   useEffect(() => {
     if (subTab === 'pengguna' && authUser.role === 'admin') {
       setAccountsLoading(true);
-      fetchManagedAccounts(authToken)
-        .then((res) => setManagedAccounts(res.accounts))
+      fetchCloudAccountsDirectory()
+        .then((res) => setCloudAccounts(res))
         .catch(() => undefined)
         .finally(() => setAccountsLoading(false));
     }
-  }, [subTab, authUser.role, authToken]);
+  }, [subTab, authUser.role]);
+
+  const handleChangeOwnPassword = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (changingPw) return;
+    setErrorFeedback(null);
+    setSaveFeedback(null);
+    const minLen = authUser.role === 'admin' ? 4 : 3;
+    if (newPw.length < minLen) {
+      setErrorFeedback(`Kata sandi baru minimal ${minLen} karakter.`);
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setErrorFeedback('Konfirmasi kata sandi baru tidak cocok.');
+      return;
+    }
+    setChangingPw(true);
+    try {
+      await changeOwnCloudPassword(authUser.username, currPw, newPw);
+      setCurrPw('');
+      setNewPw('');
+      setConfirmPw('');
+      setSaveFeedback(
+        'Kata sandi Anda berhasil diperbarui di Cloud dan langsung berlaku di semua perangkat.',
+      );
+      setTimeout(() => setSaveFeedback(null), 4500);
+    } catch (err) {
+      setErrorFeedback(err instanceof Error ? err.message : 'Gagal mengubah kata sandi.');
+    } finally {
+      setChangingPw(false);
+    }
+  };
 
   const handleSaveSchoolSettings = (ev?: React.FormEvent) => {
     if (ev) ev.preventDefault();
@@ -227,8 +275,8 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
   const handleLogoUpload = (ev: React.ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
     if (!file) return;
-    if (file.size > 1_200_000) {
-      setErrorFeedback('Ukuran file logo maksimal 1,2 MB.');
+    if (file.size > 650_000) {
+      setErrorFeedback('Ukuran file logo maksimal 650 KB agar sinkronisasi Cloud tetap cepat.');
       ev.target.value = '';
       return;
     }
@@ -263,31 +311,25 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
     setTimeout(() => setSaveFeedback(null), 4000);
   };
 
-  const handleChangeOwnPassword = async (ev: React.FormEvent) => {
-    ev.preventDefault();
+  const handleManualCloudSync = async () => {
+    if (!onForceCloudSync || cloudSyncBusy) return;
     setErrorFeedback(null);
     setSaveFeedback(null);
-    if (newPw !== confirmPw) {
-      setErrorFeedback('Konfirmasi kata sandi baru tidak cocok.');
-      return;
-    }
-    setPwBusy(true);
+    setCloudSyncBusy(true);
     try {
-      await changeOwnPassword(authToken, currPw, newPw);
-      setCurrPw('');
-      setNewPw('');
-      setConfirmPw('');
-      setSaveFeedback(`Kata sandi akun "${authUser.username}" berhasil diperbarui.`);
+      await onForceCloudSync();
+      setSaveFeedback('Seluruh data peserta, jadwal, pengawas, dan pengaturan berhasil disinkronkan ke Cloud Firestore.');
+      setTimeout(() => setSaveFeedback(null), 4500);
     } catch (err) {
-      setErrorFeedback(err instanceof Error ? err.message : 'Gagal memperbarui kata sandi.');
+      setErrorFeedback(err instanceof Error ? err.message : 'Gagal menyinkronkan data ke Cloud.');
     } finally {
-      setPwBusy(false);
+      setCloudSyncBusy(false);
     }
   };
 
   const handleExportBackup = () => {
     const payload: SystemBackupPayload = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       schoolSettings,
       prepressConfig: paperConfig,
@@ -301,6 +343,8 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
       proctors,
       proctorMatrix,
       beritaAcaraOverrides,
+      roomOverrides,
+      rulesBellConfig,
     };
     const dateStamp = new Date().toISOString().slice(0, 10);
     triggerJsonDownload(payload, `SMAN1ALALAK_PAS_Backup_${dateStamp}.json`);
@@ -921,7 +965,7 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                         <User className="w-4 h-4" />
                       </div>
                       <h2 className="font-display font-bold text-[15px] text-[#131C31]">
-                        Profil Akun Aktif &amp; Ubah Kata Sandi
+                        Profil Pengguna Aktif &amp; Ganti Kata Sandi
                       </h2>
                     </div>
                     {authUser.role === 'admin' && (
@@ -931,7 +975,7 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1F3864] hover:bg-[#172B4D] text-white text-xs font-semibold transition-colors whitespace-nowrap"
                       >
                         <KeyRound className="w-3.5 h-3.5" />
-                        Kelola Semua Akun Login
+                        Kelola Semua Akun
                       </button>
                     )}
                   </div>
@@ -966,34 +1010,40 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                     </div>
 
                     <form onSubmit={handleChangeOwnPassword} className="space-y-3">
-                      <div className="font-semibold text-[#475569]">Ganti Kata Sandi Saya</div>
-                      <div className="relative">
-                        <Lock className="w-3.5 h-3.5 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type={showPw ? 'text' : 'password'}
-                          required
-                          value={currPw}
-                          onChange={(e) => setCurrPw(e.target.value)}
-                          placeholder="Kata sandi saat ini"
-                          autoComplete="current-password"
-                          className="w-full pl-9 pr-9 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
-                        />
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-[#475569]">Ganti Kata Sandi Saya</span>
                         <button
                           type="button"
-                          onClick={() => setShowPw((v) => !v)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748B]"
+                          onClick={() => setShowPw((p) => !p)}
+                          className="text-[11px] font-semibold text-[#1D4ED8] hover:underline inline-flex items-center gap-1"
                         >
-                          {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPw ? (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5" /> Sembunyikan
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-3.5 h-3.5" /> Tampilkan
+                            </>
+                          )}
                         </button>
                       </div>
+
+                      <input
+                        type={showPw ? 'text' : 'password'}
+                        required
+                        value={currPw}
+                        onChange={(e) => setCurrPw(e.target.value)}
+                        placeholder="Kata sandi saat ini"
+                        className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1]"
+                      />
                       <input
                         type={showPw ? 'text' : 'password'}
                         required
                         value={newPw}
                         onChange={(e) => setNewPw(e.target.value)}
-                        placeholder="Kata sandi baru"
-                        autoComplete="new-password"
-                        className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
+                        placeholder={`Kata sandi baru (min. ${authUser.role === 'admin' ? 4 : 3} karakter)`}
+                        className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1]"
                       />
                       <input
                         type={showPw ? 'text' : 'password'}
@@ -1001,15 +1051,14 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                         value={confirmPw}
                         onChange={(e) => setConfirmPw(e.target.value)}
                         placeholder="Konfirmasi kata sandi baru"
-                        autoComplete="new-password"
-                        className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-[#131C31]"
+                        className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1]"
                       />
                       <button
                         type="submit"
-                        disabled={pwBusy}
+                        disabled={changingPw}
                         className="w-full py-2 px-4 rounded-lg bg-[#1D64D8] hover:bg-[#1552B8] disabled:opacity-60 text-white font-bold transition-colors"
                       >
-                        {pwBusy ? 'Memperbarui...' : 'Perbarui Kata Sandi'}
+                        {changingPw ? 'Menyimpan...' : 'Perbarui Kata Sandi'}
                       </button>
                     </form>
                   </div>
@@ -1019,7 +1068,7 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                   <section className="bg-white rounded-2xl border border-[#DCE5F2] shadow-[0_2px_10px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between">
                       <h3 className="font-display font-bold text-sm text-[#131C31]">
-                        Ringkasan Akun Terdaftar ({managedAccounts.length})
+                        Ringkasan Akun Terdaftar ({cloudAccounts.length})
                       </h3>
                       <button
                         type="button"
@@ -1043,17 +1092,23 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                           {accountsLoading ? (
                             <tr>
                               <td colSpan={4} className="py-4 px-4 text-[#64748B]">
-                                Memuat akun...
+                                Memuat daftar akun...
+                              </td>
+                            </tr>
+                          ) : cloudAccounts.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-4 px-4 text-[#64748B]">
+                                Belum ada daftar akun terdaftar.
                               </td>
                             </tr>
                           ) : (
-                            managedAccounts.map((acc) => (
-                              <tr key={acc.username}>
+                            cloudAccounts.map((acc) => (
+                              <tr key={acc.usernameKey}>
                                 <td className="py-2.5 px-4 font-mono font-semibold text-[#131C31]">
                                   {acc.username}
                                 </td>
                                 <td className="py-2.5 px-4 text-[#1E293B]">{acc.displayName}</td>
-                                <td className="py-2.5 px-4 font-semibold text-[#1F3864]">
+                                <td className="py-2.5 px-4 text-[#475569]">
                                   {acc.role === 'admin' ? 'Administrator' : 'Panitia'}
                                 </td>
                                 <td className="py-2.5 px-4 font-semibold text-[#059669]">
@@ -1223,14 +1278,46 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
 
             {subTab === 'backup_restore' && (
               <section className="bg-white rounded-2xl border border-[#DCE5F2] shadow-[0_2px_10px_rgba(15,23,42,0.04)] overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-[#EEF4FF] text-[#1D4ED8] flex items-center justify-center shrink-0">
-                    <Database className="w-4 h-4" />
+                <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-[#EEF4FF] text-[#1D4ED8] flex items-center justify-center shrink-0">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <h2 className="font-display font-bold text-[15px] text-[#131C31]">
+                      Sinkronisasi Cloud &amp; Backup Data Ujian
+                    </h2>
                   </div>
-                  <h2 className="font-display font-bold text-[15px] text-[#131C31]">
-                    Backup &amp; Restore Data Ujian
-                  </h2>
+                  {cloudSyncInfo?.lastSyncedAt && (
+                    <span className="text-[11px] font-mono text-[#059669]">
+                      Tersinkron: {cloudSyncInfo.lastSyncedAt}
+                    </span>
+                  )}
                 </div>
+
+                {onForceCloudSync && (
+                  <div className="px-5 pt-5">
+                    <div className="p-4 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div>
+                        <div className="font-display font-bold text-sm text-[#1E3A8A] mb-0.5 flex items-center gap-1.5">
+                          <Cloud className="w-4 h-4" />
+                          <span>Sinkronisasi Cloud Firestore Lintas Perangkat</span>
+                        </div>
+                        <p className="text-[#1E40AF] leading-relaxed">
+                          Setiap perubahan otomatis tersimpan ke Cloud. Tekan tombol ini jika ingin memastikan seluruh data lokal perangkat ini langsung terkirim ke Cloud.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={cloudSyncBusy || cloudSyncInfo?.syncing}
+                        onClick={() => void handleManualCloudSync()}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-60 text-white font-bold transition-colors shrink-0 whitespace-nowrap"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${cloudSyncBusy ? 'animate-spin' : ''}`} />
+                        {cloudSyncBusy ? 'Menyinkronkan...' : 'Sinkronkan Data Sekarang ke Cloud'}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div className="p-4 rounded-xl border border-[#DCE5F2] bg-[#F8FAFC] flex flex-col justify-between gap-3">
@@ -1481,12 +1568,12 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
                   a: 'Di tab Identitas Sekolah pada menu Pengaturan ini, klik "Ubah Logo" untuk mengunggah gambar logo baru dan ubah kolom Alamat, lalu tekan Simpan Pengaturan.',
                 },
                 {
-                  q: 'Siapa yang dapat menambahkan akun login panitia baru?',
-                  a: 'Hanya Administrator (akun admin) yang memiliki wewenang membuat, menonaktifkan, atau mengatur ulang kata sandi akun login Panitia melalui menu Akun & Hak Akses.',
+                  q: 'Siapa yang dapat menambahkan akun panitia baru atau mereset sandi?',
+                  a: 'Hanya Administrator yang memiliki wewenang menambah akun Panitia baru, mereset sandi, atau menonaktifkan akun melalui menu Akun & Hak Akses.',
                 },
                 {
-                  q: 'Bagaimana cara mengamankan data sebelum mengganti perangkat?',
-                  a: 'Gunakan tab Backup & Restore pada Pengaturan untuk mengunduh cadangan berformat .json yang berisi seluruh peserta, jadwal, pengawas, serta pengaturan.',
+                  q: 'Apakah data otomatis tersinkron saat dibuka di laptop lain?',
+                  a: 'Ya, semua perubahan data peserta, panitia, jadwal, pengawas, berita acara, dan pengaturan sekolah tersimpan ke Cloud Firestore sehingga otomatis muncul saat masuk di perangkat mana pun.',
                 },
               ].map((item) => (
                 <div key={item.q} className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
