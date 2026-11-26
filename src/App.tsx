@@ -138,10 +138,12 @@ import {
   getProctorDutyList,
   loadProctorMatrix,
   loadProctors,
+  migrateLegacyProctorMatrix,
   resetProctorMatrixToDefault,
   resetProctorsToDefault,
   saveProctorMatrix,
   saveProctors,
+  sortAndRenumberProctorMatrix,
   syncLiveProctorCache,
   type ProctorDutyItem,
 } from './utils/proctorStore';
@@ -150,6 +152,7 @@ import {
   buildSchedulesByClass,
   getAllKnownClasses,
   loadScheduleEntries,
+  migrateLegacyScheduleEntries,
   resetScheduleEntriesToDefault,
   saveScheduleEntries,
   syncLiveSchedulesCache,
@@ -298,9 +301,15 @@ export default function App() {
     filterSummary?: string;
   } | null>(null);
   const [proctors, setProctors] = useState<ProctorRecord[]>(() => loadProctors());
-  const [proctorMatrix, setProctorMatrix] = useState<ProctorMatrixSession[]>(() =>
-    buildScheduleSyncedProctorMatrix(scheduleEntries, students, proctors, loadProctorMatrix()),
-  );
+  const [proctorMatrix, setProctorMatrix] = useState<ProctorMatrixSession[]>(() => {
+    const { matrix: migrated } = migrateLegacyProctorMatrix(
+      loadProctorMatrix(),
+      scheduleEntries,
+      students,
+      proctors,
+    );
+    return migrated;
+  });
   const [proctorPrintPayload, setProctorPrintPayload] = useState<{
     mode: ProctorPrintMode;
     proctors: ProctorRecord[];
@@ -577,6 +586,7 @@ export default function App() {
             case 'students': {
               if (Array.isArray(payload.items) && payload.items.length > 0) {
                 const nextStudents = payload.items as StudentRecord[];
+                latestCloudStateRef.current.students = nextStudents;
                 setStudents(nextStudents);
                 setSelectedStudentNo((prev) =>
                   nextStudents.some((s) => s.no === prev) ? prev : nextStudents[0].no,
@@ -603,18 +613,28 @@ export default function App() {
             }
             case 'schedules': {
               if (Array.isArray(payload.items)) {
-                const nextSchedules = payload.items as ExamScheduleEntry[];
+                const rawSchedules = payload.items as ExamScheduleEntry[];
+                const { entries: nextSchedules, changed } =
+                  migrateLegacyScheduleEntries(rawSchedules);
+                latestCloudStateRef.current.scheduleEntries = nextSchedules;
                 setScheduleEntries(nextSchedules);
                 saveScheduleEntries(
                   nextSchedules,
                   getAllKnownClasses(latestCloudStateRef.current.students),
                 );
+                if (changed) {
+                  const items = nextSchedules.slice(0, 2000);
+                  void pushDatasetToCloud('schedules', { items }, items.length);
+                }
               }
               break;
             }
             case 'proctors': {
               if (Array.isArray(payload.items) && payload.items.length > 0) {
-                const nextProctors = payload.items as ProctorRecord[];
+                const nextProctors = [...(payload.items as ProctorRecord[])].sort(
+                  (a, b) => a.code - b.code,
+                );
+                latestCloudStateRef.current.proctors = nextProctors;
                 setProctors(nextProctors);
                 saveProctors(nextProctors);
               }
@@ -622,10 +642,20 @@ export default function App() {
             }
             case 'proctor_matrix': {
               if (Array.isArray(payload.items)) {
-                const nextMatrix = payload.items as ProctorMatrixSession[];
-                lastAppliedMatrixJsonRef.current = JSON.stringify(nextMatrix);
-                setProctorMatrix(nextMatrix);
-                saveProctorMatrix(nextMatrix);
+                const incomingMatrix = payload.items as ProctorMatrixSession[];
+                const { matrix: syncedMatrix, changed } = migrateLegacyProctorMatrix(
+                  incomingMatrix,
+                  latestCloudStateRef.current.scheduleEntries,
+                  latestCloudStateRef.current.students,
+                  latestCloudStateRef.current.proctors,
+                );
+                lastAppliedMatrixJsonRef.current = JSON.stringify(syncedMatrix);
+                setProctorMatrix(syncedMatrix);
+                saveProctorMatrix(syncedMatrix);
+                if (changed) {
+                  const items = syncedMatrix.slice(0, 2000);
+                  void pushDatasetToCloud('proctor_matrix', { items }, items.length);
+                }
               }
               break;
             }
@@ -950,7 +980,10 @@ export default function App() {
       persistCommitteeMembers(payload.committeeMembers);
     }
     if (Array.isArray(payload.scheduleEntries)) {
-      persistScheduleEntries(payload.scheduleEntries);
+      const { entries: migratedSchedules } = migrateLegacyScheduleEntries(
+        payload.scheduleEntries,
+      );
+      persistScheduleEntries(migratedSchedules);
     }
     if (Array.isArray(payload.proctors) && payload.proctors.length > 0) {
       persistProctors(payload.proctors);
@@ -1170,10 +1203,11 @@ export default function App() {
   };
 
   const persistProctorMatrix = (next: ProctorMatrixSession[]) => {
-    lastAppliedMatrixJsonRef.current = JSON.stringify(next);
-    setProctorMatrix(next);
-    saveProctorMatrix(next);
-    const items = next.slice(0, 2000);
+    const ordered = sortAndRenumberProctorMatrix(next);
+    lastAppliedMatrixJsonRef.current = JSON.stringify(ordered);
+    setProctorMatrix(ordered);
+    saveProctorMatrix(ordered);
+    const items = ordered.slice(0, 2000);
     void pushDatasetToCloud('proctor_matrix', { items }, items.length);
   };
 
@@ -1221,6 +1255,10 @@ export default function App() {
         return { ...sess, rooms: nextRooms };
       }),
     );
+  };
+
+  const handleUpdateProctorMatrix = (nextMatrix: ProctorMatrixSession[]) => {
+    persistProctorMatrix(nextMatrix);
   };
 
   const handleResyncProctorsFromSchedule = () => {
@@ -3002,6 +3040,7 @@ export default function App() {
                 onToggleProctorStatus={handleToggleProctorStatus}
                 onDeleteProctor={handleDeleteProctor}
                 onUpdateMatrixSlot={handleUpdateMatrixSlot}
+                onUpdateMatrix={handleUpdateProctorMatrix}
                 onResyncFromSchedule={handleResyncProctorsFromSchedule}
                 onResetAll={handleResetProctors}
                 onPrintProctors={handleProctorPrint}

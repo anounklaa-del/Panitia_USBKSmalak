@@ -85,27 +85,82 @@ export function resetProctorsToDefault(): ProctorRecord[] {
   return PROCTORS_MASTER;
 }
 
+export function sortAndRenumberProctorMatrix(
+  matrix: ProctorMatrixSession[],
+): ProctorMatrixSession[] {
+  if (matrix.length === 0) return [];
+  const sorted = [...matrix].sort((a, b) => {
+    const isoA = toIsoDateKey(a.date);
+    const isoB = toIsoDateKey(b.date);
+    if (isoA !== isoB) return isoA.localeCompare(isoB);
+    const tA = parseStartMinutes(a.time);
+    const tB = parseStartMinutes(b.time);
+    if (tA !== tB) return tA - tB;
+    return a.id.localeCompare(b.id, 'id');
+  });
+
+  const dayOrder: string[] = [];
+  const daySlotCounts = new Map<string, number>();
+
+  return sorted.map((sess) => {
+    const iso = toIsoDateKey(sess.date);
+    let dayIdx = dayOrder.indexOf(iso);
+    if (dayIdx === -1) {
+      dayIdx = dayOrder.length;
+      dayOrder.push(iso);
+    }
+    const dayNo = dayIdx + 1;
+    const slotIdxInDay = daySlotCounts.get(iso) ?? 0;
+    daySlotCounts.set(iso, slotIdxInDay + 1);
+
+    const parsedDate = parseIndonesianDate(sess.date);
+    const isFriday = parsedDate?.getDay() === 5;
+    const jamKe: 1 | 2 | 3 =
+      sess.jamKe === 1 || sess.jamKe === 2 || sess.jamKe === 3
+        ? sess.jamKe
+        : deriveJamKe(parseStartMinutes(sess.time), slotIdxInDay, isFriday);
+
+    const rooms: Array<number | null> = Array.from({ length: 10 }, (_, idx) => {
+      const val = sess.rooms?.[idx];
+      return typeof val === 'number' && Number.isFinite(val) ? val : null;
+    });
+
+    return {
+      ...sess,
+      id: `d${dayNo}-s${slotIdxInDay + 1}`,
+      dayNo,
+      dayLabel: formatMatrixDayLabel(sess.date),
+      shortDate: formatMatrixShortDate(sess.date),
+      jamKe,
+      time: normalizeMatrixTime(sess.time),
+      rooms,
+    };
+  });
+}
+
 export function loadProctorMatrix(): ProctorMatrixSession[] {
   try {
     const raw = localStorage.getItem(PROCTOR_MATRIX_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        liveMatrixCache = parsed as ProctorMatrixSession[];
-        return parsed as ProctorMatrixSession[];
+        const normalized = sortAndRenumberProctorMatrix(parsed as ProctorMatrixSession[]);
+        liveMatrixCache = normalized;
+        return normalized;
       }
     }
   } catch {
-    // ignore
+    // ignore storage errors
   }
   liveMatrixCache = PROCTOR_MATRIX_MASTER;
   return PROCTOR_MATRIX_MASTER;
 }
 
 export function saveProctorMatrix(matrix: ProctorMatrixSession[]) {
-  liveMatrixCache = matrix;
+  const normalized = sortAndRenumberProctorMatrix(matrix);
+  liveMatrixCache = normalized;
   try {
-    localStorage.setItem(PROCTOR_MATRIX_STORAGE_KEY, JSON.stringify(matrix));
+    localStorage.setItem(PROCTOR_MATRIX_STORAGE_KEY, JSON.stringify(normalized));
   } catch {
     // ignore
   }
@@ -185,12 +240,52 @@ function deriveJamKe(startMinutes: number, daySlotIdx: number, isFriday: boolean
 }
 
 /**
+ * Determines which rooms (1..10) have active exams during a slot.
+ * Specifically keeps Ruang 09 empty (null) on Grade-XI-only sessions where XI 6
+ * has no exam (e.g. Selasa, 8 Des 2026 jam 11.45 - 12.45).
+ */
+export function computeSessionRoomActiveFlags(
+  activeClasses: Set<string>,
+  roomToClasses: Map<number, Set<string>>,
+): boolean[] {
+  let hasX = false;
+  let hasXI = false;
+  let hasXII = false;
+  for (const cls of activeClasses) {
+    const tier = extractClassTier(cls);
+    if (tier === 'X') hasX = true;
+    else if (tier === 'XI') hasXI = true;
+    else if (tier === 'XII') hasXII = true;
+  }
+
+  const xiOnlyWithoutXI6 = hasXI && !hasX && !hasXII && !activeClasses.has('XI 6');
+
+  const flags: boolean[] = [];
+  for (let r = 1; r <= 10; r++) {
+    if (xiOnlyWithoutXI6 && r === 9) {
+      flags.push(false);
+      continue;
+    }
+    const classesInRoom = roomToClasses.get(r) ?? new Set();
+    let hasExam = false;
+    for (const cls of classesInRoom) {
+      if (activeClasses.has(cls)) {
+        hasExam = true;
+        break;
+      }
+    }
+    flags.push(hasExam);
+  }
+  return flags;
+}
+
+/**
  * Builds a proctor duty matrix strictly aligned with active ExamScheduleEntry slots
  * and actual StudentRecord room occupancy across Ruang 01..10.
  *
  * - Only time slots present in active `scheduleEntries` appear as rows.
  * - A room cell (`1..10`) is `null` (black block) whenever no student in that room
- *   has an active exam at that date & time.
+ *   has an active exam at that date & time (or Ruang 09 when XI 6 has no exam).
  * - Preserves valid manual room assignments from `preserveFromMatrix` when still
  *   active and conflict-free within the same session; fills remaining active rooms
  *   sequentially across `Aktif` proctors without double-booking in the same time slot.
@@ -290,18 +385,7 @@ export function buildScheduleSyncedProctorMatrix(
     const usedInRow = new Set<number>();
 
     // Determine which rooms have active classes in this slot
-    const roomHasExam: boolean[] = [];
-    for (let rIdx = 0; rIdx < 10; rIdx++) {
-      const classesInRoom = roomToClasses.get(rIdx + 1) ?? new Set();
-      let hasExam = false;
-      for (const cls of classesInRoom) {
-        if (slot.classes.has(cls)) {
-          hasExam = true;
-          break;
-        }
-      }
-      roomHasExam.push(hasExam);
-    }
+    const roomHasExam = computeSessionRoomActiveFlags(slot.classes, roomToClasses);
 
     // Pass 1: Keep valid non-conflicting existing assignments for active rooms
     if (existing) {
@@ -353,6 +437,72 @@ export function buildScheduleSyncedProctorMatrix(
       rooms,
     };
   });
+}
+
+/**
+ * Automatically migrates cached or cloud legacy proctor matrices that still have:
+ * 1) Non-null Ruang 09 on Selasa, 8 Des 2026 jam 11.45-12.45 when XI 6 has no exam, or
+ * 2) The legacy 20 -> 31 rotation gap between Rabu 2 Des 13.15 and Kamis 3 Des 08.00.
+ */
+export function migrateLegacyProctorMatrix(
+  matrix: ProctorMatrixSession[],
+  scheduleEntries: ExamScheduleEntry[],
+  students: StudentRecord[],
+  proctors: ProctorRecord[],
+): { matrix: ProctorMatrixSession[]; changed: boolean } {
+  if (matrix.length === 0) {
+    return { matrix, changed: false };
+  }
+
+  const ordered = sortAndRenumberProctorMatrix(matrix);
+  const selasa8Slot = ordered.find(
+    (s) =>
+      toIsoDateKey(s.date) === '2026-12-08' &&
+      Math.abs(parseStartMinutes(s.time) - (11 * 60 + 45)) <= 15,
+  );
+  const hasXi6ExamOnSelasa8 = scheduleEntries.some(
+    (e) =>
+      e.status === 'Aktif' &&
+      toIsoDateKey(e.date) === '2026-12-08' &&
+      Math.abs(parseStartMinutes(e.time) - (11 * 60 + 45)) <= 15 &&
+      e.classes.some((c) => c.trim() === 'XI 6'),
+  );
+  const hasLegacySelasa8Room9 =
+    Boolean(selasa8Slot) && !hasXi6ExamOnSelasa8 && selasa8Slot?.rooms[8] !== null;
+
+  const rabuLast = ordered.find(
+    (s) =>
+      toIsoDateKey(s.date) === '2026-12-02' &&
+      Math.abs(parseStartMinutes(s.time) - (13 * 60 + 15)) <= 15,
+  );
+  const kamisFirst = ordered.find(
+    (s) =>
+      toIsoDateKey(s.date) === '2026-12-03' &&
+      Math.abs(parseStartMinutes(s.time) - 8 * 60) <= 15,
+  );
+  const hasLegacyBtaGap =
+    Boolean(rabuLast && kamisFirst) &&
+    rabuLast?.rooms[9] === 20 &&
+    kamisFirst?.rooms[0] === 31;
+
+  if (!hasLegacySelasa8Room9 && !hasLegacyBtaGap) {
+    const synced = buildScheduleSyncedProctorMatrix(
+      scheduleEntries,
+      students,
+      proctors,
+      ordered,
+    );
+    return {
+      matrix: synced,
+      changed: !areMatricesEqual(matrix, synced),
+    };
+  }
+
+  const rebuilt = buildScheduleSyncedProctorMatrix(scheduleEntries, students, proctors);
+  return {
+    matrix: rebuilt,
+    changed: !areMatricesEqual(matrix, rebuilt),
+  };
 }
 
 /**
@@ -484,8 +634,9 @@ export function getProctorDutyList(
   filterRoomNo?: number,
   students?: StudentRecord[],
 ): ProctorDutyItem[] {
+  const orderedMatrix = sortAndRenumberProctorMatrix(matrix);
   const duties: ProctorDutyItem[] = [];
-  for (const session of matrix) {
+  for (const session of orderedMatrix) {
     if (filterIsoDate && toIsoDateKey(session.date) !== filterIsoDate) continue;
     session.rooms.forEach((assignedCode, idx) => {
       const roomNo = idx + 1;
@@ -513,7 +664,15 @@ export function getProctorDutyList(
       }
     });
   }
-  return duties;
+  return duties.sort((a, b) => {
+    const isoA = toIsoDateKey(a.date);
+    const isoB = toIsoDateKey(b.date);
+    if (isoA !== isoB) return isoA.localeCompare(isoB);
+    const tA = parseStartMinutes(a.time);
+    const tB = parseStartMinutes(b.time);
+    if (tA !== tB) return tA - tB;
+    return a.roomNo - b.roomNo;
+  });
 }
 
 export function findProctorForRoomSession(

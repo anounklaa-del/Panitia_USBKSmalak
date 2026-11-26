@@ -41,6 +41,7 @@ import {
   formatIndonesianDateLong,
   getAllKnownClasses,
   parseIndonesianDate,
+  parseStartMinutes,
   splitDayAndDate,
   summarizeClassesLabel,
   toIsoDateKey,
@@ -363,7 +364,10 @@ export const ExamScheduleManager: React.FC<ExamScheduleManagerProps> = ({
       const da = parseIndonesianDate(a.date)?.getTime() ?? 0;
       const db = parseIndonesianDate(b.date)?.getTime() ?? 0;
       if (da !== db) return da - db;
-      return a.time.localeCompare(b.time, 'id');
+      const ta = parseStartMinutes(a.time);
+      const tb = parseStartMinutes(b.time);
+      if (ta !== tb) return ta - tb;
+      return a.subject.localeCompare(b.subject, 'id');
     });
   }, [entries, searchQuery, selectedDayIso, selectedClassFilter, selectedRoomFilter, knownClasses]);
 
@@ -375,7 +379,10 @@ export const ExamScheduleManager: React.FC<ExamScheduleManagerProps> = ({
       const da = parseIndonesianDate(a.date)?.getTime() ?? 0;
       const db = parseIndonesianDate(b.date)?.getTime() ?? 0;
       if (da !== db) return da - db;
-      return a.time.localeCompare(b.time, 'id');
+      const ta = parseStartMinutes(a.time);
+      const tb = parseStartMinutes(b.time);
+      if (ta !== tb) return ta - tb;
+      return a.subject.localeCompare(b.subject, 'id');
     });
     return sorted.filter((e) => {
       if (selectedDayIso && toIsoDateKey(e.date) !== selectedDayIso) return false;

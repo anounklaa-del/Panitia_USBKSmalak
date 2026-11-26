@@ -1,8 +1,9 @@
 import React from 'react';
 import { LOGO_LEFT_DATA_URI, LOGO_RIGHT_DATA_URI } from '../data/pasData';
 import type { ProctorMatrixSession, ProctorRecord } from '../data/proctorData';
+import { compareNumericStrings } from '../utils/deskStickerBuilder';
 import { describeMatrixSession, type ProctorDutyItem } from '../utils/proctorStore';
-import type { ExamScheduleEntry } from '../utils/scheduleStore';
+import { parseStartMinutes, toIsoDateKey, type ExamScheduleEntry } from '../utils/scheduleStore';
 
 export type ProctorPrintMode = 'matrix' | 'roster' | 'both';
 
@@ -27,18 +28,33 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
   academicYear = '2026/2027',
   filterSummary,
 }) => {
-  // Group matrix sessions by dayNo for clean rowspan rendering matching official spreadsheet
+  // Sort matrix chronologically and group by normalized date so NO is strictly 1, 2, 3...
+  const sortedMatrix = [...matrix].sort((a, b) => {
+    const isoA = toIsoDateKey(a.date);
+    const isoB = toIsoDateKey(b.date);
+    if (isoA !== isoB) return isoA.localeCompare(isoB);
+    return parseStartMinutes(a.time) - parseStartMinutes(b.time);
+  });
+
   const dayGroups: Array<{
     dayNo: number;
     dayLabel: string;
     shortDate: string;
+    iso: string;
     sessions: ProctorMatrixSession[];
   }> = [];
 
-  for (const s of matrix) {
-    let grp = dayGroups.find((g) => g.dayNo === s.dayNo);
+  for (const s of sortedMatrix) {
+    const iso = toIsoDateKey(s.date);
+    let grp = dayGroups.find((g) => g.iso === iso);
     if (!grp) {
-      grp = { dayNo: s.dayNo, dayLabel: s.dayLabel, shortDate: s.shortDate, sessions: [] };
+      grp = {
+        dayNo: dayGroups.length + 1,
+        dayLabel: s.dayLabel,
+        shortDate: s.shortDate,
+        iso,
+        sessions: [],
+      };
       dayGroups.push(grp);
     }
     grp.sessions.push(s);
@@ -120,7 +136,7 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
                     PUKUL (WITA)
                   </th>
                   {scheduleEntries && scheduleEntries.length > 0 && (
-                    <th rowSpan={2} className="border border-[#334155] py-1 px-1 text-left w-28">
+                    <th rowSpan={2} className="border border-[#334155] py-1 px-1 text-left w-36">
                       JADWAL / MAPEL
                     </th>
                   )}
@@ -176,7 +192,7 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
                           {sess.time}
                         </td>
                         {meta && (
-                          <td className="border border-[#334155] py-[1.5px] px-1 text-left truncate max-w-[105px]">
+                          <td className="border border-[#334155] py-[1.5px] px-1 text-left text-[7px] leading-[1.15] max-w-[140px]">
                             {meta.summaryLabel}
                           </td>
                         )}
@@ -264,7 +280,10 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
               <tbody>
                 {pageRows.map((p, idx) => {
                   const duties = dutiesByCode.get(p.code) ?? [];
-                  const rooms = [...new Set(duties.map((d) => d.roomLabel))].slice(0, 5);
+                  const allRooms = [...new Set(duties.map((d) => d.roomLabel))].sort(
+                    compareNumericStrings,
+                  );
+                  const rooms = allRooms.slice(0, 5);
                   return (
                     <tr key={p.id} className={idx % 2 === 1 ? 'bg-[#F8FAFC]' : 'bg-white'}>
                       <td className="border border-[#CBD5E1] py-1.5 px-1.5 text-center font-mono font-bold">
@@ -277,7 +296,7 @@ export const ProctorRosterPrintBlock: React.FC<ProctorRosterPrintBlockProps> = (
                         {p.nip || `KODE-${String(p.code).padStart(2, '0')}`}
                       </td>
                       <td className="border border-[#CBD5E1] py-1.5 px-2 text-center font-mono text-[8.5px]">
-                        {rooms.length > 0 ? rooms.join(', ') + (duties.length > 5 ? '...' : '') : '-'}
+                        {rooms.length > 0 ? rooms.join(', ') + (allRooms.length > 5 ? '...' : '') : '-'}
                       </td>
                       <td className="border border-[#CBD5E1] py-1.5 px-1.5 text-center font-mono font-semibold">
                         {duties.length} sesi

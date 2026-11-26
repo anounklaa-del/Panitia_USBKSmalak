@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
+  ArrowLeftRight,
   CalendarCheck,
   CalendarDays,
   Check,
@@ -10,6 +12,7 @@ import {
   ChevronsRight,
   Clock,
   DoorOpen,
+  Eraser,
   Eye,
   Grid3X3,
   Home,
@@ -18,10 +21,13 @@ import {
   Printer,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Trophy,
+  Undo2,
   UserPlus,
   Users,
   X,
@@ -34,7 +40,10 @@ import type {
   ProctorStatus,
 } from '../data/proctorData';
 import type { MainWorkspaceTab } from '../types/prepress';
+import { compareNumericStrings, normalizeRoomLabel } from '../utils/deskStickerBuilder';
 import {
+  areMatricesEqual,
+  computeSessionRoomActiveFlags,
   describeMatrixSession,
   getProctorDutyList,
   matchSubjectsForSlot,
@@ -63,6 +72,7 @@ interface ProctorManagerProps {
   onToggleProctorStatus: (id: string, nextStatus: ProctorStatus) => void;
   onDeleteProctor: (id: string) => void;
   onUpdateMatrixSlot: (sessionId: string, roomIdx: number, proctorCode: number | null) => void;
+  onUpdateMatrix: (nextMatrix: ProctorMatrixSession[]) => void;
   onResyncFromSchedule: () => void;
   onResetAll: () => void;
   onPrintProctors: (opts: {
@@ -74,7 +84,42 @@ interface ProctorManagerProps {
   onNavigateTab: (tab: MainWorkspaceTab) => void;
 }
 
-type ProctorViewMode = 'list' | 'matrix';
+type ProctorViewMode = 'list' | 'matrix' | 'edit_matrix';
+
+function groupMatrixByDay(sessions: ProctorMatrixSession[]) {
+  const sorted = [...sessions].sort((a, b) => {
+    const isoA = toIsoDateKey(a.date);
+    const isoB = toIsoDateKey(b.date);
+    if (isoA !== isoB) return isoA.localeCompare(isoB);
+    return parseStartMinutes(a.time) - parseStartMinutes(b.time);
+  });
+
+  const groups: Array<{
+    dayNo: number;
+    dayLabel: string;
+    date: string;
+    shortDate: string;
+    iso: string;
+    sessions: ProctorMatrixSession[];
+  }> = [];
+  for (const s of sorted) {
+    const iso = toIsoDateKey(s.date);
+    let g = groups.find((x) => x.iso === iso);
+    if (!g) {
+      g = {
+        dayNo: groups.length + 1,
+        dayLabel: s.dayLabel,
+        date: s.date,
+        shortDate: s.shortDate,
+        iso,
+        sessions: [],
+      };
+      groups.push(g);
+    }
+    g.sessions.push(s);
+  }
+  return groups;
+}
 
 type ActiveModal =
   | null
@@ -113,6 +158,7 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
   onToggleProctorStatus,
   onDeleteProctor,
   onUpdateMatrixSlot,
+  onUpdateMatrix,
   onResyncFromSchedule,
   onResetAll,
   onPrintProctors,
@@ -125,6 +171,18 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
   const [selectedRoomNo, setSelectedRoomNo] = useState<string>('');
   const [highlightedCode, setHighlightedCode] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Draft state for Edit Matriks Tugas mode
+  const [draftMatrix, setDraftMatrix] = useState<ProctorMatrixSession[]>(() => matrix);
+  const [swapCodeA, setSwapCodeA] = useState<number>(1);
+  const [swapCodeB, setSwapCodeB] = useState<number>(2);
+  const [replaceFromCode, setReplaceFromCode] = useState<number>(1);
+  const [replaceToCode, setReplaceToCode] = useState<string>('');
+  const [bulkScope, setBulkScope] = useState<'all' | 'filtered'>('all');
+
+  useEffect(() => {
+    setDraftMatrix(matrix);
+  }, [matrix]);
 
   // Calendar defaults to November 2026 (where PAS Day 1 = 30 Nov 2026 starts)
   const [calYear, setCalYear] = useState(2026);
@@ -156,16 +214,18 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
     return map;
   }, [proctors]);
 
-  // Unique exam days from matrix
+  // Unique exam days from matrix (strictly chronological & sequentially numbered 1..N)
   const examDays = useMemo(() => {
-    const map = new Map<string, { dayNo: number; date: string; shortDate: string }>();
+    const map = new Map<string, { date: string; shortDate: string }>();
     for (const s of matrix) {
       const iso = toIsoDateKey(s.date);
       if (!map.has(iso)) {
-        map.set(iso, { dayNo: s.dayNo, date: s.date, shortDate: s.shortDate });
+        map.set(iso, { date: s.date, shortDate: s.shortDate });
       }
     }
-    return [...map.entries()].map(([iso, val]) => ({ iso, ...val }));
+    return [...map.entries()]
+      .sort(([isoA], [isoB]) => isoA.localeCompare(isoB))
+      .map(([iso, val], idx) => ({ iso, dayNo: idx + 1, ...val }));
   }, [matrix]);
 
   // Map each proctor code to their duties (full & filtered by selectedDayIso/selectedRoomNo)
@@ -278,33 +338,258 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
     return matrix.filter((s) => toIsoDateKey(s.date) === selectedDayIso);
   }, [matrix, selectedDayIso]);
 
-  const matrixDayGroups = useMemo(() => {
-    const groups: Array<{
-      dayNo: number;
-      dayLabel: string;
-      date: string;
-      shortDate: string;
-      iso: string;
-      sessions: ProctorMatrixSession[];
-    }> = [];
-    for (const s of filteredMatrix) {
-      const iso = toIsoDateKey(s.date);
-      let g = groups.find((x) => x.dayNo === s.dayNo);
-      if (!g) {
-        g = {
-          dayNo: s.dayNo,
-          dayLabel: s.dayLabel,
-          date: s.date,
-          shortDate: s.shortDate,
-          iso,
-          sessions: [],
-        };
-        groups.push(g);
+  const matrixDayGroups = useMemo(() => groupMatrixByDay(filteredMatrix), [filteredMatrix]);
+
+  const filteredDraftMatrix = useMemo(() => {
+    if (!selectedDayIso) return draftMatrix;
+    return draftMatrix.filter((s) => toIsoDateKey(s.date) === selectedDayIso);
+  }, [draftMatrix, selectedDayIso]);
+
+  const draftDayGroups = useMemo(
+    () => groupMatrixByDay(filteredDraftMatrix),
+    [filteredDraftMatrix],
+  );
+
+  const hasUnsavedMatrixChanges = useMemo(
+    () => !areMatricesEqual(draftMatrix, matrix),
+    [draftMatrix, matrix],
+  );
+
+  // Map roomNo (1..10) -> Set of classes sitting in that room
+  const roomClassesMap = useMemo(() => {
+    const map = new Map<number, Set<string>>();
+    for (let r = 1; r <= 10; r++) map.set(r, new Set());
+    for (const st of students) {
+      const rNum = Number(normalizeRoomLabel(st.ruang).replace(/\D/g, ''));
+      if (rNum >= 1 && rNum <= 10 && st.kelas.trim()) {
+        map.get(rNum)!.add(st.kelas.trim());
       }
-      g.sessions.push(s);
     }
-    return groups;
-  }, [filteredMatrix]);
+    return map;
+  }, [students]);
+
+  const getSessionRoomActiveFlags = useMemo(() => {
+    return (sess: ProctorMatrixSession): boolean[] => {
+      const iso = toIsoDateKey(sess.date);
+      const startMin = parseStartMinutes(sess.time);
+      const activeClasses = new Set<string>();
+      for (const e of scheduleEntries) {
+        if (e.status !== 'Aktif') continue;
+        if (toIsoDateKey(e.date) !== iso) continue;
+        if (Math.abs(parseStartMinutes(e.time) - startMin) > 15) continue;
+        for (const c of e.classes) {
+          if (c.trim()) activeClasses.add(c.trim());
+        }
+      }
+      return computeSessionRoomActiveFlags(activeClasses, roomClassesMap);
+    };
+  }, [scheduleEntries, roomClassesMap]);
+
+  const draftStats = useMemo(() => {
+    const savedById = new Map(matrix.map((s) => [s.id, s]));
+    let modifiedCount = 0;
+    let missingActiveCount = 0;
+    const conflictCellKeys = new Set<string>();
+    const conflicts: Array<{
+      sessionId: string;
+      dayNo: number;
+      shortDate: string;
+      time: string;
+      code: number;
+      roomNumbers: number[];
+    }> = [];
+
+    for (const sess of draftMatrix) {
+      const saved = savedById.get(sess.id);
+      const activeFlags = getSessionRoomActiveFlags(sess);
+      const codeToRooms = new Map<number, number[]>();
+
+      sess.rooms.forEach((code, rIdx) => {
+        if (saved && saved.rooms[rIdx] !== code) {
+          modifiedCount++;
+        }
+        if (activeFlags[rIdx] && (code === null || code === undefined)) {
+          missingActiveCount++;
+        }
+        if (code !== null && code !== undefined) {
+          const arr = codeToRooms.get(code) ?? [];
+          arr.push(rIdx + 1);
+          codeToRooms.set(code, arr);
+        }
+      });
+
+      for (const [code, roomNums] of codeToRooms.entries()) {
+        if (roomNums.length >= 2) {
+          conflicts.push({
+            sessionId: sess.id,
+            dayNo: sess.dayNo,
+            shortDate: sess.shortDate,
+            time: sess.time,
+            code,
+            roomNumbers: roomNums,
+          });
+          for (const rNum of roomNums) {
+            conflictCellKeys.add(`${sess.id}:${rNum - 1}`);
+          }
+        }
+      }
+    }
+
+    return {
+      modifiedCount,
+      missingActiveCount,
+      conflicts,
+      conflictCellKeys,
+    };
+  }, [draftMatrix, matrix, getSessionRoomActiveFlags]);
+
+  const handleUpdateDraftCell = (sessionId: string, roomIdx: number, proctorCode: number | null) => {
+    setDraftMatrix((prev) =>
+      prev.map((sess) => {
+        if (sess.id !== sessionId) return sess;
+        const nextRooms = [...sess.rooms];
+        nextRooms[roomIdx] = proctorCode;
+        return { ...sess, rooms: nextRooms };
+      }),
+    );
+  };
+
+  const handleSwapCodesInDraft = () => {
+    if (swapCodeA === swapCodeB) {
+      flashNotice('Pilih dua kode pengawas yang berbeda untuk ditukar.');
+      return;
+    }
+    const filterIso = bulkScope === 'filtered' && selectedDayIso ? selectedDayIso : '';
+    let swappedCount = 0;
+    setDraftMatrix((prev) =>
+      prev.map((sess) => {
+        if (filterIso && toIsoDateKey(sess.date) !== filterIso) return sess;
+        let touched = false;
+        const nextRooms = sess.rooms.map((c) => {
+          if (c === swapCodeA) {
+            touched = true;
+            swappedCount++;
+            return swapCodeB;
+          }
+          if (c === swapCodeB) {
+            touched = true;
+            swappedCount++;
+            return swapCodeA;
+          }
+          return c;
+        });
+        return touched ? { ...sess, rooms: nextRooms } : sess;
+      }),
+    );
+    flashNotice(
+      swappedCount > 0
+        ? `Kode ${swapCodeA} dan ${swapCodeB} ditukar pada ${swappedCount} slot (klik Simpan Matriks untuk menerapkan ke Cloud).`
+        : `Tidak ditemukan jadwal Kode ${swapCodeA} atau ${swapCodeB} pada cakupan yang dipilih.`,
+    );
+  };
+
+  const handleReplaceCodeInDraft = () => {
+    const targetCode = replaceToCode ? Number(replaceToCode) : null;
+    if (targetCode === replaceFromCode) {
+      flashNotice('Kode sumber dan kode pengganti sama.');
+      return;
+    }
+    const filterIso = bulkScope === 'filtered' && selectedDayIso ? selectedDayIso : '';
+    let changedCount = 0;
+    setDraftMatrix((prev) =>
+      prev.map((sess) => {
+        if (filterIso && toIsoDateKey(sess.date) !== filterIso) return sess;
+        let touched = false;
+        const nextRooms = sess.rooms.map((c) => {
+          if (c === replaceFromCode) {
+            touched = true;
+            changedCount++;
+            return targetCode;
+          }
+          return c;
+        });
+        return touched ? { ...sess, rooms: nextRooms } : sess;
+      }),
+    );
+    flashNotice(
+      changedCount > 0
+        ? `Kode ${replaceFromCode} diganti ${targetCode !== null ? `ke Kode ${targetCode}` : '(Dikosongkan)'} pada ${changedCount} slot (klik Simpan Matriks untuk menerapkan).`
+        : `Kode ${replaceFromCode} tidak ditemukan pada cakupan yang dipilih.`,
+    );
+  };
+
+  const handleAutoFillEmptyInDraft = (targetSessionId?: string) => {
+    const activePool = sortedProctors.filter((p) => p.status === 'Aktif');
+    const pool = activePool.length > 0 ? activePool : sortedProctors;
+    if (pool.length === 0) return;
+
+    const filterIso =
+      !targetSessionId && bulkScope === 'filtered' && selectedDayIso ? selectedDayIso : '';
+    let filledCount = 0;
+    let cursor = 0;
+
+    setDraftMatrix((prev) =>
+      prev.map((sess) => {
+        if (targetSessionId && sess.id !== targetSessionId) return sess;
+        if (filterIso && toIsoDateKey(sess.date) !== filterIso) return sess;
+
+        const activeFlags = getSessionRoomActiveFlags(sess);
+        const used = new Set<number>();
+        sess.rooms.forEach((c) => {
+          if (c !== null && c !== undefined) used.add(c);
+        });
+
+        let touched = false;
+        const nextRooms = sess.rooms.map((c, rIdx) => {
+          if (!activeFlags[rIdx] || c !== null) return c;
+          let chosen: number | null = null;
+          for (let tries = 0; tries < pool.length; tries++) {
+            const candidate = pool[(cursor + tries) % pool.length].code;
+            if (!used.has(candidate)) {
+              chosen = candidate;
+              cursor = (cursor + tries + 1) % pool.length;
+              break;
+            }
+          }
+          if (chosen === null) {
+            chosen = pool[cursor % pool.length].code;
+            cursor = (cursor + 1) % pool.length;
+          }
+          used.add(chosen);
+          touched = true;
+          filledCount++;
+          return chosen;
+        });
+
+        return touched ? { ...sess, rooms: nextRooms } : sess;
+      }),
+    );
+
+    flashNotice(
+      filledCount > 0
+        ? `${filledCount} ruang ujian kosong diisi otomatis tanpa bentrok sesi (klik Simpan Matriks untuk menyimpan).`
+        : 'Semua ruang ujian aktif pada cakupan ini sudah memiliki pengawas.',
+    );
+  };
+
+  const handleClearSessionRoomsInDraft = (sessionId: string) => {
+    setDraftMatrix((prev) =>
+      prev.map((sess) =>
+        sess.id === sessionId ? { ...sess, rooms: Array(10).fill(null) } : sess,
+      ),
+    );
+    flashNotice('Slot pengawas pada sesi tersebut dikosongkan di draft.');
+  };
+
+  const handleSaveDraftMatrix = () => {
+    onUpdateMatrix(draftMatrix);
+    flashNotice('Perubahan Matriks Tugas berhasil disimpan & disinkronkan ke Cloud.');
+  };
+
+  const handleDiscardDraftMatrix = () => {
+    setDraftMatrix(matrix);
+    flashNotice('Perubahan draft matriks dibatalkan.');
+  };
 
   // Calendar grid for current calYear/calMonth
   const examDateSet = useMemo(() => new Set(examDays.map((d) => d.iso)), [examDays]);
@@ -423,7 +708,7 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
     );
     const allDuties = fullDutiesByCode.get(code) ?? matching;
     const list = matching.length > 0 ? matching : allDuties;
-    const uniqueRooms = [...new Set(list.map((d) => d.roomLabel))];
+    const uniqueRooms = [...new Set(list.map((d) => d.roomLabel))].sort(compareNumericStrings);
     const uniqueSubjects = [...new Set(list.flatMap((d) => d.subjects))];
     const roomSummary =
       uniqueRooms.length === 0
@@ -591,7 +876,7 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
           {/* Header Row with View Mode Switcher */}
           <div className="px-5 pt-4 pb-3 border-b border-[#E8EFF8] flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] gap-0.5">
+              <div className="inline-flex p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] gap-0.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setViewMode('list')}
@@ -615,6 +900,24 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                 >
                   <Grid3X3 className="w-3.5 h-3.5" />
                   Matriks Tugas ({matrix.length} Sesi)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('edit_matrix')}
+                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    viewMode === 'edit_matrix'
+                      ? 'bg-[#1D4ED8] text-white shadow-2xs'
+                      : 'text-[#475569] hover:text-[#0F295C]'
+                  }`}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit Matriks Tugas
+                  {hasUnsavedMatrixChanges && (
+                    <span
+                      title="Ada perubahan draft matriks yang belum disimpan"
+                      className="w-2 h-2 rounded-full bg-[#FACC15] ring-2 ring-white"
+                    />
+                  )}
                 </button>
               </div>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#ECFDF5] border border-[#A7F3D0] text-[10.5px] font-semibold text-[#047857]">
@@ -665,9 +968,9 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                 type="button"
                 onClick={() =>
                   onPrintProctors({
-                    mode: viewMode === 'matrix' ? 'matrix' : 'both',
+                    mode: viewMode === 'list' ? 'both' : 'matrix',
                     proctors: sortedProctors,
-                    matrix: filteredMatrix,
+                    matrix: viewMode === 'edit_matrix' ? filteredDraftMatrix : filteredMatrix,
                     filterSummary: selectedDayIso
                       ? formatIndonesianDateLong(selectedDayIso)
                       : undefined,
@@ -676,7 +979,7 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F8FAFC] text-[#0F295C] text-xs font-semibold shadow-2xs transition-colors"
               >
                 <Printer className="w-3.5 h-3.5 text-[#1D4ED8]" />
-                {viewMode === 'matrix' ? 'Cetak Matriks' : 'Cetak Daftar'}
+                {viewMode === 'list' ? 'Cetak Daftar' : 'Cetak Matriks'}
               </button>
             </div>
           </div>
@@ -932,7 +1235,7 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                 </div>
               </div>
             </>
-          ) : (
+          ) : viewMode === 'matrix' ? (
             /* MATRIKS TUGAS PENGAWAS + KETERANGAN (Matching Images 2 & 3) */
             <div className="p-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3.5 py-2.5 text-xs">
@@ -941,18 +1244,28 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                     Matriks Kode Pengawas PAS Semester 1 ({academicYear})
                   </span>
                   <span className="ml-2 text-[#64748B]">
-                    Klik sel angka untuk mengganti kode pengawas ruang, atau klik kode pada Keterangan untuk menyorot jadwalnya.
+                    Klik sel angka untuk mengganti kode pengawas ruang, atau gunakan menu Edit Matriks Tugas untuk edit massal.
                   </span>
                 </div>
-                {highlightedCode !== null && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {highlightedCode !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setHighlightedCode(null)}
+                      className="px-2.5 py-1 rounded-md bg-[#2563EB] text-white text-[11px] font-bold"
+                    >
+                      Sorot Kode {highlightedCode} ({proctorByCode.get(highlightedCode)?.nama}) ×
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setHighlightedCode(null)}
-                    className="px-2.5 py-1 rounded-md bg-[#2563EB] text-white text-[11px] font-bold"
+                    onClick={() => setViewMode('edit_matrix')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[11px] font-bold shadow-2xs transition-colors"
                   >
-                    Sorot Kode {highlightedCode} ({proctorByCode.get(highlightedCode)?.nama}) ×
+                    <Pencil className="w-3 h-3" />
+                    Edit Matriks Tugas
                   </button>
-                )}
+                </div>
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-[#CBD5E1]">
@@ -1019,13 +1332,13 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                               {sess.jamKe}
                             </td>
                             <td
-                              className="border border-[#CBD5E1] py-1 px-1.5 text-center whitespace-nowrap"
+                              className="border border-[#CBD5E1] py-1 px-1.5 text-center"
                               title={`${meta.subjects.join(', ') || 'Sesuai Jadwal'} (${meta.activeRoomCount} ruang aktif)`}
                             >
-                              <div className="font-mono text-[10.5px] text-[#1E293B] font-semibold">
+                              <div className="font-mono text-[10.5px] text-[#1E293B] font-semibold whitespace-nowrap">
                                 {sess.time}
                               </div>
-                              <div className="text-[9.5px] text-[#1D4ED8] font-medium truncate max-w-[135px] mx-auto">
+                              <div className="text-[9.5px] text-[#1D4ED8] font-medium leading-tight max-w-[165px] mx-auto">
                                 {meta.summaryLabel}
                               </div>
                             </td>
@@ -1085,6 +1398,483 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                   </h3>
                   <span className="text-[11px] text-[#64748B]">
                     Klik nama untuk menyorot posisi pada matriks
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                  {sortedProctors.map((p) => {
+                    const active = highlightedCode === p.code;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() =>
+                          setHighlightedCode((prev) => (prev === p.code ? null : p.code))
+                        }
+                        className={`flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors ${
+                          active
+                            ? 'bg-[#2563EB] text-white font-bold shadow-2xs'
+                            : 'hover:bg-white text-[#1E293B]'
+                        }`}
+                      >
+                        <span
+                          className={`font-mono font-bold w-6 text-right shrink-0 ${
+                            active ? 'text-[#FACC15]' : 'text-[#1D4ED8]'
+                          }`}
+                        >
+                          {p.code}.
+                        </span>
+                        <span className="truncate">{p.nama}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* MENU EDIT MATRIKS TUGAS PENGAWAS */
+            <div className="p-4 space-y-4">
+              {/* Save / Status Bar */}
+              <div
+                className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-xs ${
+                  hasUnsavedMatrixChanges
+                    ? 'bg-[#FFFBEB] border-[#FDE68A]'
+                    : 'bg-[#F8FAFC] border-[#E2E8F0]'
+                }`}
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-display font-bold text-sm text-[#0F295C]">
+                      Editor Matriks Tugas Pengawas ({academicYear})
+                    </span>
+                    {hasUnsavedMatrixChanges ? (
+                      <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] border border-[#F59E0B]/40 text-[#92400E] text-[10.5px] font-bold">
+                        {draftStats.modifiedCount} sel diubah (belum disimpan)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-[#ECFDF5] border border-[#A7F3D0] text-[#047857] text-[10.5px] font-bold">
+                        Tersimpan &amp; Tersinkron
+                      </span>
+                    )}
+                    {draftStats.conflicts.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] text-[10.5px] font-bold">
+                        {draftStats.conflicts.length} Bentrok Jadwal
+                      </span>
+                    )}
+                    {draftStats.missingActiveCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-[#FFF7ED] border border-[#FED7AA] text-[#C2410C] text-[10.5px] font-bold">
+                        {draftStats.missingActiveCount} Ruang Aktif Kosong
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#475569]">
+                    Ubah kode pengawas langsung pada sel ruang (1–10), tukar atau ganti kode secara massal, lalu klik{' '}
+                    <strong className="text-[#0F295C]">Simpan Matriks</strong> untuk memperbarui Berita Acara &amp; Cloud.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {hasUnsavedMatrixChanges && (
+                    <button
+                      type="button"
+                      onClick={handleDiscardDraftMatrix}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#475569] text-xs font-semibold"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      Batalkan Draft
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!hasUnsavedMatrixChanges}
+                    onClick={handleSaveDraftMatrix}
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#16A34A] hover:bg-[#15803D] disabled:bg-[#CBD5E1] disabled:text-[#64748B] text-white text-xs font-bold shadow-xs transition-colors"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Simpan Matriks
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Bulk Tools */}
+              <div className="rounded-xl border border-[#DCE5F2] bg-[#F8FAFC] p-3.5 space-y-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-display font-bold text-[#0F295C] flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-[#2563EB]" />
+                    Alat Edit Massal Matriks
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-semibold text-[#475569]">Cakupan:</span>
+                    <div className="inline-flex p-0.5 rounded-lg bg-white border border-[#CBD5E1]">
+                      <button
+                        type="button"
+                        onClick={() => setBulkScope('all')}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold ${
+                          bulkScope === 'all'
+                            ? 'bg-[#1D4ED8] text-white'
+                            : 'text-[#475569] hover:text-[#0F295C]'
+                        }`}
+                      >
+                        Semua Sesi ({draftMatrix.length})
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedDayIso}
+                        onClick={() => setBulkScope('filtered')}
+                        title={
+                          selectedDayIso
+                            ? 'Terapkan hanya ke tanggal ujian yang sedang difilter'
+                            : 'Pilih tanggal pada filter Hari di atas untuk mengaktifkan'
+                        }
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold disabled:opacity-45 ${
+                          bulkScope === 'filtered' && selectedDayIso
+                            ? 'bg-[#1D4ED8] text-white'
+                            : 'text-[#475569] hover:text-[#0F295C]'
+                        }`}
+                      >
+                        Hari Terfilter
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAutoFillEmptyInDraft()}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#93C5FD] bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] text-[11px] font-bold"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Isi Otomatis Ruang Kosong
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {/* Swap 2 Codes */}
+                  <div className="rounded-lg border border-[#E2E8F0] bg-white p-2.5 flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-[#0F295C] whitespace-nowrap">
+                      Tukar 2 Kode:
+                    </span>
+                    <select
+                      value={swapCodeA}
+                      onChange={(e) => setSwapCodeA(Number(e.target.value))}
+                      aria-label="Kode Pengawas Pertama"
+                      className="flex-1 min-w-[130px] px-2 py-1.5 rounded-md border border-[#CBD5E1] bg-white text-[11px] font-medium"
+                    >
+                      {sortedProctors.map((p) => (
+                        <option key={p.id} value={p.code}>
+                          {String(p.code).padStart(2, '0')} — {p.nama}
+                        </option>
+                      ))}
+                    </select>
+                    <ArrowLeftRight className="w-3.5 h-3.5 text-[#64748B] shrink-0" />
+                    <select
+                      value={swapCodeB}
+                      onChange={(e) => setSwapCodeB(Number(e.target.value))}
+                      aria-label="Kode Pengawas Kedua"
+                      className="flex-1 min-w-[130px] px-2 py-1.5 rounded-md border border-[#CBD5E1] bg-white text-[11px] font-medium"
+                    >
+                      {sortedProctors.map((p) => (
+                        <option key={p.id} value={p.code}>
+                          {String(p.code).padStart(2, '0')} — {p.nama}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleSwapCodesInDraft}
+                      className="px-3 py-1.5 rounded-md bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[11px] font-bold shrink-0"
+                    >
+                      Tukar
+                    </button>
+                  </div>
+
+                  {/* Replace 1 Code */}
+                  <div className="rounded-lg border border-[#E2E8F0] bg-white p-2.5 flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-[#0F295C] whitespace-nowrap">
+                      Ganti Kode:
+                    </span>
+                    <select
+                      value={replaceFromCode}
+                      onChange={(e) => setReplaceFromCode(Number(e.target.value))}
+                      aria-label="Kode Pengawas Sumber"
+                      className="flex-1 min-w-[125px] px-2 py-1.5 rounded-md border border-[#CBD5E1] bg-white text-[11px] font-medium"
+                    >
+                      {sortedProctors.map((p) => (
+                        <option key={p.id} value={p.code}>
+                          {String(p.code).padStart(2, '0')} — {p.nama}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[#64748B] font-bold">→</span>
+                    <select
+                      value={replaceToCode}
+                      onChange={(e) => setReplaceToCode(e.target.value)}
+                      aria-label="Kode Pengawas Pengganti"
+                      className="flex-1 min-w-[125px] px-2 py-1.5 rounded-md border border-[#CBD5E1] bg-white text-[11px] font-medium"
+                    >
+                      <option value="">— Kosongkan (Blok Hitam)</option>
+                      {sortedProctors.map((p) => (
+                        <option key={p.id} value={String(p.code)}>
+                          {String(p.code).padStart(2, '0')} — {p.nama}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleReplaceCodeInDraft}
+                      className="px-3 py-1.5 rounded-md bg-[#0F295C] hover:bg-[#1E3A8A] text-white text-[11px] font-bold shrink-0"
+                    >
+                      Terapkan
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Conflict Warning Banner */}
+              {draftStats.conflicts.length > 0 && (
+                <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 text-xs text-[#991B1B] space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-[#DC2626] shrink-0" />
+                    Terdeteksi {draftStats.conflicts.length} Bentrok Pengawas (1 pengawas bertugas di lebih dari 1 ruang pada jam yang sama):
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {draftStats.conflicts.slice(0, 6).map((c, i) => (
+                      <span
+                        key={`${c.sessionId}-${c.code}-${i}`}
+                        className="px-2 py-0.5 rounded-md bg-white border border-[#FCA5A5] text-[10.5px] font-semibold"
+                      >
+                        Hari {c.dayNo} ({c.shortDate}) {c.time}: Kode {String(c.code).padStart(2, '0')} di R. {c.roomNumbers.join(' & R. ')}
+                      </span>
+                    ))}
+                    {draftStats.conflicts.length > 6 && (
+                      <span className="text-[10.5px] font-semibold px-1 py-0.5">
+                        +{draftStats.conflicts.length - 6} bentrok lainnya
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Legend Badges */}
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#475569] px-1">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3.5 h-3.5 rounded border border-[#CBD5E1] bg-white inline-block" />
+                  Terjadwal Normal
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3.5 h-3.5 rounded border-2 border-[#F59E0B] bg-[#FEF3C7] inline-block" />
+                  Diubah (Draft)
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3.5 h-3.5 rounded border-2 border-[#EF4444] bg-[#FEE2E2] inline-block" />
+                  Bentrok Sesi Sama
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3.5 h-3.5 rounded border border-dashed border-[#FB923C] bg-[#FFF7ED] inline-block" />
+                  Ruang Ujian Aktif Belum Terisi
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3.5 h-3.5 rounded border border-[#334155] bg-[#0F172A] inline-block" />
+                  Tidak Ada Ujian (Blok Hitam)
+                </span>
+                {highlightedCode !== null && (
+                  <button
+                    type="button"
+                    onClick={() => setHighlightedCode(null)}
+                    className="ml-auto px-2.5 py-0.5 rounded-md bg-[#2563EB] text-white font-bold"
+                  >
+                    Sorot Kode {highlightedCode} ×
+                  </button>
+                )}
+              </div>
+
+              {/* Editable Matrix Table */}
+              <div className="overflow-x-auto rounded-xl border border-[#CBD5E1]">
+                <table className="w-full border-collapse text-[11px]">
+                  <thead>
+                    <tr className="bg-[#FFC000] text-[#0F172A] font-bold">
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-9">
+                        NO
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-24">
+                        HARI / TGL
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-1.5 text-center w-12">
+                        JAM KE
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-28">
+                        PUKUL (WITA)
+                      </th>
+                      <th
+                        colSpan={10}
+                        className="border border-[#94A3B8] py-1 px-2 text-center bg-[#9BC2E6] text-[#0F295C]"
+                      >
+                        EDIT KODE PENGAWAS PER RUANG (KLIK SEL UNTUK UBAH)
+                      </th>
+                      <th rowSpan={2} className="border border-[#94A3B8] py-1.5 px-2 text-center w-20">
+                        AKSI SESI
+                      </th>
+                    </tr>
+                    <tr className="bg-[#FFC000] text-[#0F172A] font-bold">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((r) => (
+                        <th key={r} className="border border-[#94A3B8] py-1 px-1 text-center min-w-[44px]">
+                          R.{r}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draftDayGroups.map((grp) =>
+                      grp.sessions.map((sess, sIdx) => {
+                        const isEvenRow = sIdx % 2 === 1;
+                        const meta = describeMatrixSession(sess, scheduleEntries);
+                        const activeFlags = getSessionRoomActiveFlags(sess);
+                        const savedSession = matrix.find((m) => m.id === sess.id);
+
+                        return (
+                          <tr
+                            key={sess.id}
+                            className={isEvenRow ? 'bg-[#F1F5F9]/75' : 'bg-white'}
+                          >
+                            {sIdx === 0 && (
+                              <>
+                                <td
+                                  rowSpan={grp.sessions.length}
+                                  className="border border-[#CBD5E1] text-center font-bold bg-white text-[#0F295C] align-middle"
+                                >
+                                  {grp.dayNo}
+                                </td>
+                                <td
+                                  rowSpan={grp.sessions.length}
+                                  className="border border-[#CBD5E1] px-2 text-center bg-white align-middle"
+                                >
+                                  <div className="font-bold text-[#0F295C]">{grp.dayLabel}</div>
+                                  <div className="font-mono text-[10.5px] text-[#475569]">
+                                    {grp.shortDate}
+                                  </div>
+                                </td>
+                              </>
+                            )}
+                            <td className="border border-[#CBD5E1] py-1 text-center font-semibold text-[#334155]">
+                              {sess.jamKe}
+                            </td>
+                            <td
+                              className="border border-[#CBD5E1] py-1 px-1.5 text-center"
+                              title={`${meta.subjects.join(', ') || 'Sesuai Jadwal'} (${meta.activeRoomCount} ruang terisi)`}
+                            >
+                              <div className="font-mono text-[10.5px] text-[#1E293B] font-semibold whitespace-nowrap">
+                                {sess.time}
+                              </div>
+                              <div className="text-[9.5px] text-[#1D4ED8] font-medium leading-tight max-w-[165px] mx-auto">
+                                {meta.summaryLabel}
+                              </div>
+                            </td>
+                            {sess.rooms.map((code, rIdx) => {
+                              const roomHasExam = activeFlags[rIdx];
+                              const isConflict = draftStats.conflictCellKeys.has(`${sess.id}:${rIdx}`);
+                              const isModified =
+                                savedSession !== undefined && savedSession.rooms[rIdx] !== code;
+                              const isHighlighted =
+                                highlightedCode !== null && code === highlightedCode;
+                              const roomFilterActive =
+                                selectedRoomNo && Number(selectedRoomNo) !== rIdx + 1;
+                              const pInfo = code !== null ? proctorByCode.get(code) : undefined;
+
+                              let cellBgClass = 'bg-white text-[#0F172A] hover:bg-[#EFF6FF]';
+                              if (isConflict) {
+                                cellBgClass =
+                                  'bg-[#FEE2E2] text-[#991B1B] ring-2 ring-inset ring-[#EF4444]';
+                              } else if (isHighlighted) {
+                                cellBgClass =
+                                  'bg-[#2563EB] text-white ring-2 ring-inset ring-[#FACC15]';
+                              } else if (isModified) {
+                                cellBgClass =
+                                  'bg-[#FEF3C7] text-[#92400E] ring-2 ring-inset ring-[#F59E0B]';
+                              } else if (code === null) {
+                                cellBgClass = roomHasExam
+                                  ? 'bg-[#FFF7ED] text-[#C2410C] ring-1 ring-inset ring-[#FB923C]'
+                                  : 'bg-[#0F172A] text-[#64748B] hover:bg-[#1E293B]';
+                              } else if (roomFilterActive) {
+                                cellBgClass = 'bg-white/70 text-[#CBD5E1] hover:bg-[#EFF6FF]';
+                              }
+
+                              return (
+                                <td
+                                  key={rIdx}
+                                  className="border border-[#CBD5E1] p-0 text-center relative"
+                                >
+                                  <div
+                                    className={`relative w-full h-8 flex items-center justify-center font-mono font-bold text-[11.5px] transition-colors ${cellBgClass}`}
+                                    title={
+                                      code !== null
+                                        ? `Ruang ${String(rIdx + 1).padStart(2, '0')} · ${sess.date} (${sess.time})\nKode ${String(code).padStart(2, '0')}: ${pInfo?.nama ?? 'Belum terdaftar'}${isConflict ? '\n[BENTROK: Kode sama bertugas di ruang lain pada jam ini]' : ''}${isModified ? '\n[Diubah di draft]' : ''}`
+                                        : roomHasExam
+                                          ? `Ruang ${String(rIdx + 1).padStart(2, '0')} memiliki jadwal ujian aktif tetapi belum ada pengawas (klik untuk memilih)`
+                                          : `Ruang ${String(rIdx + 1).padStart(2, '0')} tidak ada jadwal ujian pada sesi ini (klik jika ingin mengisi manual)`
+                                    }
+                                  >
+                                    <span className="pointer-events-none select-none">
+                                      {code !== null ? String(code).padStart(2, '0') : roomHasExam ? '?' : '—'}
+                                    </span>
+                                    <select
+                                      value={code !== null ? String(code) : ''}
+                                      onChange={(e) =>
+                                        handleUpdateDraftCell(
+                                          sess.id,
+                                          rIdx,
+                                          e.target.value ? Number(e.target.value) : null,
+                                        )
+                                      }
+                                      aria-label={`Pilih pengawas ${sess.date} ${sess.time} Ruang ${rIdx + 1}`}
+                                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    >
+                                      <option value="">
+                                        — Kosongkan (Blok Hitam)
+                                      </option>
+                                      {sortedProctors.map((p) => (
+                                        <option key={p.id} value={String(p.code)}>
+                                          {String(p.code).padStart(2, '0')} — {p.nama}
+                                          {p.status !== 'Aktif' ? ' (Tidak Aktif)' : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                            <td className="border border-[#CBD5E1] px-1 py-0.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAutoFillEmptyInDraft(sess.id)}
+                                  title="Isi otomatis ruang ujian aktif yang masih kosong pada sesi ini"
+                                  className="w-6 h-6 rounded bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] flex items-center justify-center"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleClearSessionRoomsInDraft(sess.id)}
+                                  title="Kosongkan semua pengawas pada sesi ini"
+                                  className="w-6 h-6 rounded bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#DC2626] flex items-center justify-center"
+                                >
+                                  <Eraser className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Keterangan Kode 1-37 Card inside Edit Mode for quick reference & highlight */}
+              <div className="rounded-xl border border-[#DCE5F2] bg-[#F8FAFC] p-4">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <h3 className="font-display font-bold text-sm text-[#0F295C]">
+                    Referensi Kode Pengawas (1 – {sortedProctors.length})
+                  </h3>
+                  <span className="text-[11px] text-[#64748B]">
+                    Klik nama untuk menyorot posisi pada matriks editor
                   </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
@@ -1423,7 +2213,8 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="bg-[#EEF4FC] text-[#0F295C] font-bold">
-                      <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Hari</th>
+                      <th className="py-2 px-2 text-center border border-[#DCE5F2] w-10">No</th>
+                      <th className="py-2 px-2 text-center border border-[#DCE5F2]">Hari</th>
                       <th className="py-2 px-2.5 text-left border border-[#DCE5F2]">Tanggal</th>
                       <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Jam Ke</th>
                       <th className="py-2 px-2.5 text-center border border-[#DCE5F2]">Pukul (WITA)</th>
@@ -1434,7 +2225,10 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
                   <tbody>
                     {(fullDutiesByCode.get(modal.proctor.code) ?? []).map((d, idx) => (
                       <tr key={`${d.sessionId}-${d.roomNo}-${idx}`} className="hover:bg-[#F8FAFC]">
-                        <td className="py-1.5 px-2.5 text-center border border-[#E2E8F0] font-semibold">
+                        <td className="py-1.5 px-2 text-center border border-[#E2E8F0] font-mono text-[#475569]">
+                          {idx + 1}
+                        </td>
+                        <td className="py-1.5 px-2 text-center border border-[#E2E8F0] font-semibold">
                           #{d.dayNo}
                         </td>
                         <td className="py-1.5 px-2.5 border border-[#E2E8F0] font-medium">

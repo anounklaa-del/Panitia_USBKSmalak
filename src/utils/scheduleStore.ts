@@ -59,15 +59,21 @@ const ID_MONTH_MAP: Record<string, number> = {
   juli: 6,
   agu: 7,
   agt: 7,
+  aug: 7,
+  august: 7,
   agustus: 7,
   sep: 8,
   sept: 8,
   september: 8,
   okt: 9,
+  oct: 9,
+  october: 9,
   oktober: 9,
   nov: 10,
   november: 10,
   des: 11,
+  dec: 11,
+  december: 11,
   desember: 11,
 };
 
@@ -117,13 +123,25 @@ export function parseIndonesianDate(dateStr: string): Date | null {
     return Number.isNaN(dt.getTime()) ? null : dt;
   }
 
-  // Handle "Senin, 30 Nov 2026" or "30 Nov 2026"
+  // Handle DD/MM/YYYY or DD-MM-YYYY
+  const slashMatch = clean.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (slashMatch) {
+    const day = Number(slashMatch[1]);
+    const month = Number(slashMatch[2]) - 1;
+    const rawY = Number(slashMatch[3]);
+    const year = rawY < 100 ? 2000 + rawY : rawY;
+    const dt = new Date(year, month, day);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  // Handle "Senin, 30 Nov 2026", "30 Nov 2026", or "30-Nov-26" / "01-Dec-26"
   const afterComma = clean.includes(',') ? clean.split(',').slice(1).join(',').trim() : clean;
-  const parts = afterComma.replace(/\s+/g, ' ').split(' ');
+  const parts = afterComma.replace(/[-/]+/g, ' ').replace(/\s+/g, ' ').split(' ');
   if (parts.length >= 3) {
     const day = Number(parts[0]);
     const monthKey = parts[1].toLowerCase().replace(/[^a-z]/g, '');
-    const year = Number(parts[2]);
+    const rawYear = Number(parts[2]);
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
     const month = ID_MONTH_MAP[monthKey];
     if (!Number.isNaN(day) && month !== undefined && !Number.isNaN(year)) {
       const dt = new Date(year, month, day);
@@ -399,14 +417,179 @@ export function syncLiveSchedulesCache(
   return liveSchedulesMapCache;
 }
 
+function isBtaSubjectName(subject: string): boolean {
+  const clean = subject.trim().toLowerCase();
+  return (
+    /\bbta\b/.test(clean) ||
+    clean.includes('mulok/bta') ||
+    clean.includes('mulok / bta') ||
+    clean.includes('mulok-bta') ||
+    clean.includes('mulok bta')
+  );
+}
+
+/**
+ * Automatically migrates cached or cloud legacy schedule entries where Class X
+ * was included in BTA / MULOK/BTA, removing Class X from BTA and moving
+ * Class X's schedule below it on Rabu, 2 Des 2026 (e.g. Biologi 14.30–15.30)
+ * up into the 13.15 – 14.15 slot.
+ */
+export function migrateLegacyScheduleEntries(
+  entries: ExamScheduleEntry[],
+): { entries: ExamScheduleEntry[]; changed: boolean } {
+  const TARGET_ISO = '2026-12-02';
+  const SLOT_1315 = 13 * 60 + 15;
+  const TIME_1315_LABEL = '13.15 – 14.15';
+
+  let needsMigration = false;
+  for (const e of entries) {
+    const hasClassX = e.classes.some((c) => extractClassTier(c) === 'X');
+    if (!hasClassX) continue;
+    if (isBtaSubjectName(e.subject)) {
+      needsMigration = true;
+      break;
+    }
+    if (toIsoDateKey(e.date) === TARGET_ISO && parseStartMinutes(e.time) > SLOT_1315) {
+      needsMigration = true;
+      break;
+    }
+  }
+
+  if (!needsMigration) {
+    return { entries, changed: false };
+  }
+
+  const migrated: ExamScheduleEntry[] = [];
+  const removedRabuBtaXClasses = new Set<string>();
+
+  for (const e of entries) {
+    const xClasses = e.classes.filter((c) => extractClassTier(c) === 'X');
+    const nonXClasses = e.classes.filter((c) => extractClassTier(c) !== 'X');
+    const isTargetRabu = toIsoDateKey(e.date) === TARGET_ISO;
+    const start = parseStartMinutes(e.time);
+
+    // 1. Remove Class X from any BTA / MULOK/BTA entry
+    if (xClasses.length > 0 && isBtaSubjectName(e.subject)) {
+      if (isTargetRabu) {
+        for (const xc of xClasses) removedRabuBtaXClasses.add(xc);
+      }
+      if (nonXClasses.length > 0) {
+        migrated.push({
+          ...e,
+          classes: nonXClasses,
+          kelasLabel: summarizeClassesLabel(nonXClasses),
+          isCombined: nonXClasses.length > 1,
+        });
+      }
+      continue;
+    }
+
+    // 2. Move any Class X schedule below 13.15 on Rabu, 2 Des 2026 (e.g. 14.30–15.30 Biologi) UP to 13.15–14.15
+    if (isTargetRabu && xClasses.length > 0 && start > SLOT_1315) {
+      if (nonXClasses.length > 0) {
+        migrated.push({
+          ...e,
+          classes: nonXClasses,
+          kelasLabel: summarizeClassesLabel(nonXClasses),
+          isCombined: nonXClasses.length > 1,
+        });
+      }
+      migrated.push({
+        ...e,
+        id: nonXClasses.length > 0 ? `${e.id}-x-up` : e.id,
+        time: TIME_1315_LABEL,
+        classes: xClasses,
+        kelasLabel: summarizeClassesLabel(xClasses),
+        isCombined: xClasses.length > 1,
+      });
+      continue;
+    }
+
+    migrated.push(e);
+  }
+
+  // Ensure Class X has Biologi at 13.15–14.15 on Rabu, 2 Des 2026 if BTA was removed and no 13.15 X entry exists
+  if (removedRabuBtaXClasses.size > 0) {
+    const xAlreadyIn1315 = new Set<string>();
+    for (const item of migrated) {
+      if (
+        toIsoDateKey(item.date) === TARGET_ISO &&
+        parseStartMinutes(item.time) === SLOT_1315
+      ) {
+        for (const c of item.classes) {
+          if (extractClassTier(c) === 'X') xAlreadyIn1315.add(c);
+        }
+      }
+    }
+    const missingX = [...removedRabuBtaXClasses]
+      .filter((c) => !xAlreadyIn1315.has(c))
+      .sort(compareNumericStrings);
+    if (missingX.length > 0) {
+      migrated.push({
+        id: 'sch-rabu-x-bio-migrated',
+        date: 'Rabu, 2 Des 2026',
+        time: TIME_1315_LABEL,
+        subject: 'Biologi',
+        classes: missingX,
+        kelasLabel: summarizeClassesLabel(missingX),
+        ruangLabel: 'R. 01 – 10',
+        pengawas: 'Tim C',
+        status: 'Aktif',
+        isCombined: missingX.length > 1,
+      });
+    }
+  }
+
+  // Merge any duplicate (date, time, subject) entries created by migration
+  const deduped: ExamScheduleEntry[] = [];
+  const mergeMap = new Map<string, ExamScheduleEntry>();
+  for (const item of migrated) {
+    const k = `${toIsoDateKey(item.date)}||${parseStartMinutes(item.time)}||${item.subject.trim().toLowerCase()}`;
+    const existing = mergeMap.get(k);
+    if (!existing) {
+      const copy = { ...item, classes: [...new Set(item.classes)].sort(compareNumericStrings) };
+      copy.kelasLabel = summarizeClassesLabel(copy.classes);
+      copy.isCombined = copy.classes.length > 1;
+      mergeMap.set(k, copy);
+      deduped.push(copy);
+    } else {
+      const mergedClasses = [...new Set([...existing.classes, ...item.classes])].sort(
+        compareNumericStrings,
+      );
+      existing.classes = mergedClasses;
+      existing.kelasLabel = summarizeClassesLabel(mergedClasses);
+      existing.isCombined = mergedClasses.length > 1;
+    }
+  }
+
+  deduped.sort((a, b) => {
+    const da = parseIndonesianDate(a.date)?.getTime() ?? 0;
+    const db = parseIndonesianDate(b.date)?.getTime() ?? 0;
+    if (da !== db) return da - db;
+    const ta = parseStartMinutes(a.time);
+    const tb = parseStartMinutes(b.time);
+    if (ta !== tb) return ta - tb;
+    return a.subject.localeCompare(b.subject, 'id');
+  });
+
+  return { entries: deduped, changed: true };
+}
+
 export function loadScheduleEntries(): ExamScheduleEntry[] {
   try {
     const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        syncLiveSchedulesCache(parsed as ExamScheduleEntry[]);
-        return parsed as ExamScheduleEntry[];
+        const { entries: migrated, changed } = migrateLegacyScheduleEntries(
+          parsed as ExamScheduleEntry[],
+        );
+        if (changed) {
+          saveScheduleEntries(migrated);
+        } else {
+          syncLiveSchedulesCache(migrated);
+        }
+        return migrated;
       }
     }
   } catch {

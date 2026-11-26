@@ -105,51 +105,50 @@ export const PROCTOR_MATRIX_MASTER: ProctorMatrixSession[] = [
   { id: 'd2-s5', dayNo: 2, dayLabel: 'SELASA', date: 'Selasa, 1 Des 2026', shortDate: '01-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [27, 28, 29, 30, 31, 32, 33, 34, 35, 36] },
   { id: 'd2-s6', dayNo: 2, dayLabel: 'SELASA', date: 'Selasa, 1 Des 2026', shortDate: '01-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [37, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
 
-  // HARI 3 — RABU, 02-Dec-26 (6 sesi; jam 09.15 R.04 & R.07 kosong karena XI 3 & XI 5 tidak ada ujian)
+  // HARI 3 — RABU, 02-Dec-26 (5 sesi; jam 09.15 R.04 & R.07 kosong karena XI 3 & XI 5 tidak ada ujian; 14.30-15.30 kosong/tidak ada ujian)
   { id: 'd3-s1', dayNo: 3, dayLabel: 'RABU', date: 'Rabu, 2 Des 2026', shortDate: '02-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19] },
   { id: 'd3-s2', dayNo: 3, dayLabel: 'RABU', date: 'Rabu, 2 Des 2026', shortDate: '02-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [20, 21, 22, null, 23, 24, null, 25, 26, 27] },
   { id: 'd3-s3', dayNo: 3, dayLabel: 'RABU', date: 'Rabu, 2 Des 2026', shortDate: '02-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [28, 29, 30, 31, 32, 33, 34, 35, 36, 37] },
   { id: 'd3-s4', dayNo: 3, dayLabel: 'RABU', date: 'Rabu, 2 Des 2026', shortDate: '02-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
   { id: 'd3-s5', dayNo: 3, dayLabel: 'RABU', date: 'Rabu, 2 Des 2026', shortDate: '02-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20] },
-  { id: 'd3-s6', dayNo: 3, dayLabel: 'RABU', date: 'Rabu, 2 Des 2026', shortDate: '02-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [21, 22, 23, 24, 25, 26, 27, 28, 29, 30] },
 
   // HARI 4 — KAMIS, 03-Dec-26 (6 sesi; jam 11.45 R.10 kosong karena hanya berisi XI 7)
-  { id: 'd4-s1', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [31, 32, 33, 34, 35, 36, 37, 1, 2, 3] },
-  { id: 'd4-s2', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
-  { id: 'd4-s3', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23] },
-  { id: 'd4-s4', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [24, 25, 26, 27, 28, 29, 30, 31, 32, null] },
-  { id: 'd4-s5', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [33, 34, 35, 36, 37, 1, 2, 3, 4, 5] },
-  { id: 'd4-s6', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15] },
+  { id: 'd4-s1', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [21, 22, 23, 24, 25, 26, 27, 28, 29, 30] },
+  { id: 'd4-s2', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [31, 32, 33, 34, 35, 36, 37, 1, 2, 3] },
+  { id: 'd4-s3', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
+  { id: 'd4-s4', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [14, 15, 16, 17, 18, 19, 20, 21, 22, null] },
+  { id: 'd4-s5', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [23, 24, 25, 26, 27, 28, 29, 30, 31, 32] },
+  { id: 'd4-s6', dayNo: 4, dayLabel: 'KAMIS', date: 'Kamis, 3 Des 2026', shortDate: '03-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [33, 34, 35, 36, 37, 1, 2, 3, 4, 5] },
 
   // HARI 5 — JUM'AT, 04-Dec-26 (3 sesi: Matematika Umum XII, X, XI)
-  { id: 'd5-s1', dayNo: 5, dayLabel: "JUM'AT", date: 'Jumat, 4 Des 2026', shortDate: '04-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [16, 17, 18, 19, 20, 21, 22, 23, 24, 25] },
-  { id: 'd5-s2', dayNo: 5, dayLabel: "JUM'AT", date: 'Jumat, 4 Des 2026', shortDate: '04-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [26, 27, 28, 29, 30, 31, 32, 33, 34, 35] },
-  { id: 'd5-s3', dayNo: 5, dayLabel: "JUM'AT", date: 'Jumat, 4 Des 2026', shortDate: '04-Dec-26', jamKe: 3, time: '10.30 - 11.30', rooms: [36, 37, 1, 2, 3, 4, 5, 6, 7, 8] },
+  { id: 'd5-s1', dayNo: 5, dayLabel: "JUM'AT", date: 'Jumat, 4 Des 2026', shortDate: '04-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15] },
+  { id: 'd5-s2', dayNo: 5, dayLabel: "JUM'AT", date: 'Jumat, 4 Des 2026', shortDate: '04-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [16, 17, 18, 19, 20, 21, 22, 23, 24, 25] },
+  { id: 'd5-s3', dayNo: 5, dayLabel: "JUM'AT", date: 'Jumat, 4 Des 2026', shortDate: '04-Dec-26', jamKe: 3, time: '10.30 - 11.30', rooms: [26, 27, 28, 29, 30, 31, 32, 33, 34, 35] },
 
   // HARI 6 — SENIN, 07-Dec-26 (6 sesi; semua 10 ruang aktif)
-  { id: 'd6-s1', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
-  { id: 'd6-s2', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [19, 20, 21, 22, 23, 24, 25, 26, 27, 28] },
-  { id: 'd6-s3', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [29, 30, 31, 32, 33, 34, 35, 36, 37, 1] },
-  { id: 'd6-s4', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
-  { id: 'd6-s5', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [12, 13, 14, 15, 16, 17, 18, 19, 20, 21] },
-  { id: 'd6-s6', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31] },
+  { id: 'd6-s1', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [36, 37, 1, 2, 3, 4, 5, 6, 7, 8] },
+  { id: 'd6-s2', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
+  { id: 'd6-s3', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [19, 20, 21, 22, 23, 24, 25, 26, 27, 28] },
+  { id: 'd6-s4', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [29, 30, 31, 32, 33, 34, 35, 36, 37, 1] },
+  { id: 'd6-s5', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+  { id: 'd6-s6', dayNo: 6, dayLabel: 'SENIN', date: 'Senin, 7 Des 2026', shortDate: '07-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [12, 13, 14, 15, 16, 17, 18, 19, 20, 21] },
 
-  // HARI 7 — SELASA, 08-Dec-26 (6 sesi; semua 10 ruang aktif)
-  { id: 'd7-s1', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [32, 33, 34, 35, 36, 37, 1, 2, 3, 4] },
-  { id: 'd7-s2', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] },
-  { id: 'd7-s3', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [15, 16, 17, 18, 19, 20, 21, 22, 23, 24] },
-  { id: 'd7-s4', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [25, 26, 27, 28, 29, 30, 31, 32, 33, 34] },
-  { id: 'd7-s5', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [35, 36, 37, 1, 2, 3, 4, 5, 6, 7] },
-  { id: 'd7-s6', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17] },
+  // HARI 7 — SELASA, 08-Dec-26 (6 sesi; jam 11.45 R.09 kosong karena XI 6 tidak ada ujian)
+  { id: 'd7-s1', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31] },
+  { id: 'd7-s2', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [32, 33, 34, 35, 36, 37, 1, 2, 3, 4] },
+  { id: 'd7-s3', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] },
+  { id: 'd7-s4', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [15, 16, 17, 18, 19, 20, 21, 22, null, 23] },
+  { id: 'd7-s5', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [24, 25, 26, 27, 28, 29, 30, 31, 32, 33] },
+  { id: 'd7-s6', dayNo: 7, dayLabel: 'SELASA', date: 'Selasa, 8 Des 2026', shortDate: '08-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [34, 35, 36, 37, 1, 2, 3, 4, 5, 6] },
 
   // HARI 8 — RABU, 09-Dec-26 (5 sesi: tidak ada ujian 09.15-10.15; jam 14.30 R.01 kosong karena hanya XI 1)
-  { id: 'd8-s1', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [18, 19, 20, 21, 22, 23, 24, 25, 26, 27] },
-  { id: 'd8-s2', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [28, 29, 30, 31, 32, 33, 34, 35, 36, 37] },
-  { id: 'd8-s3', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
-  { id: 'd8-s4', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20] },
-  { id: 'd8-s5', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [null, 21, 22, 23, 24, 25, 26, 27, 28, 29] },
+  { id: 'd8-s1', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16] },
+  { id: 'd8-s2', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 1, time: '10.30 - 11.30', rooms: [17, 18, 19, 20, 21, 22, 23, 24, 25, 26] },
+  { id: 'd8-s3', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 2, time: '11.45 - 12.45', rooms: [27, 28, 29, 30, 31, 32, 33, 34, 35, 36] },
+  { id: 'd8-s4', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 1, time: '13.15 - 14.15', rooms: [37, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
+  { id: 'd8-s5', dayNo: 8, dayLabel: 'RABU', date: 'Rabu, 9 Des 2026', shortDate: '09-Dec-26', jamKe: 2, time: '14.30 - 15.30', rooms: [null, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
 
   // HARI 9 — KAMIS, 10-Dec-26 (2 sesi: Sosiologi X & Koding dan Kecerdasan Artifisial X)
-  { id: 'd9-s1', dayNo: 9, dayLabel: 'KAMIS', date: 'Kamis, 10 Des 2026', shortDate: '10-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [30, 31, 32, 33, 34, 35, 36, 37, 1, 2] },
-  { id: 'd9-s2', dayNo: 9, dayLabel: 'KAMIS', date: 'Kamis, 10 Des 2026', shortDate: '10-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  { id: 'd9-s1', dayNo: 9, dayLabel: 'KAMIS', date: 'Kamis, 10 Des 2026', shortDate: '10-Dec-26', jamKe: 1, time: '08.00 - 09.00', rooms: [19, 20, 21, 22, 23, 24, 25, 26, 27, 28] },
+  { id: 'd9-s2', dayNo: 9, dayLabel: 'KAMIS', date: 'Kamis, 10 Des 2026', shortDate: '10-Dec-26', jamKe: 2, time: '09.15 - 10.15', rooms: [29, 30, 31, 32, 33, 34, 35, 36, 37, 1] },
 ];

@@ -279,7 +279,13 @@ export function buildBeritaAcaraRecords(
     }
   }
 
-  return records;
+  return records.sort((a, b) => {
+    if (a.isoDate !== b.isoDate) return a.isoDate.localeCompare(b.isoDate);
+    const tA = parseStartMinutes(a.time);
+    const tB = parseStartMinutes(b.time);
+    if (tA !== tB) return tA - tB;
+    return a.roomNo - b.roomNo;
+  });
 }
 
 export function buildBeritaAcaraPrintPages(

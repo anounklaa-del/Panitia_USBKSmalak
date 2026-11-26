@@ -44,11 +44,6 @@ export const SCHEDULES_PASTE_NOVEMBER: Record<string, ScheduleRow[]> = {
     [
       "Rabu, 2 Des 2026",
       "13.15 – 14.15",
-      "MULOK/BTA"
-    ],
-    [
-      "Rabu, 2 Des 2026",
-      "14.30 – 15.30",
       "Biologi"
     ],
     [
@@ -131,11 +126,6 @@ export const SCHEDULES_PASTE_NOVEMBER: Record<string, ScheduleRow[]> = {
     [
       "Rabu, 2 Des 2026",
       "13.15 – 14.15",
-      "MULOK/BTA"
-    ],
-    [
-      "Rabu, 2 Des 2026",
-      "14.30 – 15.30",
       "Biologi"
     ],
     [
@@ -218,11 +208,6 @@ export const SCHEDULES_PASTE_NOVEMBER: Record<string, ScheduleRow[]> = {
     [
       "Rabu, 2 Des 2026",
       "13.15 – 14.15",
-      "MULOK/BTA"
-    ],
-    [
-      "Rabu, 2 Des 2026",
-      "14.30 – 15.30",
       "Biologi"
     ],
     [
@@ -305,11 +290,6 @@ export const SCHEDULES_PASTE_NOVEMBER: Record<string, ScheduleRow[]> = {
     [
       "Rabu, 2 Des 2026",
       "13.15 – 14.15",
-      "MULOK/BTA"
-    ],
-    [
-      "Rabu, 2 Des 2026",
-      "14.30 – 15.30",
       "Biologi"
     ],
     [
@@ -392,11 +372,6 @@ export const SCHEDULES_PASTE_NOVEMBER: Record<string, ScheduleRow[]> = {
     [
       "Rabu, 2 Des 2026",
       "13.15 – 14.15",
-      "MULOK/BTA"
-    ],
-    [
-      "Rabu, 2 Des 2026",
-      "14.30 – 15.30",
       "Biologi"
     ],
     [
@@ -479,11 +454,6 @@ export const SCHEDULES_PASTE_NOVEMBER: Record<string, ScheduleRow[]> = {
     [
       "Rabu, 2 Des 2026",
       "13.15 – 14.15",
-      "MULOK/BTA"
-    ],
-    [
-      "Rabu, 2 Des 2026",
-      "14.30 – 15.30",
       "Biologi"
     ],
     [
