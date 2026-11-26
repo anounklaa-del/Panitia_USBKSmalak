@@ -18,6 +18,7 @@ interface CardSheetPreviewProps {
   selectedStudent: StudentRecord;
   deskLookup?: Record<string, string>;
   schedulesMap?: Record<string, ScheduleRow[]>;
+  academicYear?: string;
   sheetIndex: number;
   onSheetIndexChange: (idx: number) => void;
   onSelectStudent: (student: StudentRecord) => void;
@@ -31,6 +32,7 @@ export const CardSheetPreview: React.FC<CardSheetPreviewProps> = ({
   selectedStudent,
   deskLookup,
   schedulesMap,
+  academicYear = '2026/2027',
   sheetIndex,
   onSheetIndexChange,
   onSelectStudent,
@@ -215,6 +217,7 @@ export const CardSheetPreview: React.FC<CardSheetPreviewProps> = ({
               deskLookup={deskLookup}
               schedulesMap={schedulesMap}
               selectedStudentNo={selectedStudent.no}
+              academicYear={academicYear}
               onSelectStudent={onSelectStudent}
             />
           </div>

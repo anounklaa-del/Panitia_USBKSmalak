@@ -13,6 +13,7 @@ import {
   Home,
   KeyRound,
   LayoutGrid,
+  ListOrdered,
   Settings,
   ShieldCheck,
   Tag,
@@ -103,6 +104,13 @@ export const WORKSPACE_META: Record<MainWorkspaceTab, WorkspaceRouteMeta> = {
     label: 'Daftar Hadir',
     shortLabel: 'Daftar Hadir',
   },
+  participant_list: {
+    id: 'participant_list',
+    groupId: 'perangkat',
+    groupLabel: 'Perangkat Ujian',
+    label: 'Daftar Nama Peserta',
+    shortLabel: 'Daftar Peserta',
+  },
   berita_acara: {
     id: 'berita_acara',
     groupId: 'perangkat',
@@ -170,6 +178,7 @@ interface AppSidebarProps {
     stickers: number;
     seatingPages: number;
     attendancePages: number;
+    participantListPages: number;
     beritaAcara: number;
   };
   academicYear: string;
@@ -255,6 +264,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       label: 'Daftar Hadir',
       icon: <ClipboardCheck className="w-4 h-4 shrink-0" />,
       count: counts.attendancePages,
+    },
+    {
+      id: 'participant_list',
+      label: 'Daftar Nama Peserta',
+      icon: <ListOrdered className="w-4 h-4 shrink-0" />,
+      count: counts.participantListPages,
     },
     {
       id: 'berita_acara',

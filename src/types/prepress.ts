@@ -22,6 +22,7 @@ export type MainWorkspaceTab =
   | 'sticker'
   | 'seating'
   | 'attendance'
+  | 'participant_list'
   | 'berita_acara'
   | 'rules_bell'
   | 'students'
@@ -168,6 +169,49 @@ export const DEFAULT_ATTENDANCE_CONFIG: AttendanceConfig = {
   committeeChairNip: '',
   cityLabel: 'Alalak',
   zoomPct: 58,
+};
+
+export type ParticipantListGroupingMode =
+  | 'per_ruang_jenjang'
+  | 'per_ruang'
+  | 'per_kelas'
+  | 'card_filter';
+export type ParticipantListOrderMode = 'no_peserta' | 'meja_order' | 'nama_alpha';
+
+export interface ParticipantListConfig {
+  groupingMode: ParticipantListGroupingMode;
+  selectedRoom: string;
+  selectedTier: '' | 'X' | 'XI' | 'XII';
+  selectedClass: string;
+  orderMode: ParticipantListOrderMode;
+  rowsPerPage: 'auto' | 'fit_group' | 20 | 25 | 30 | 35;
+  paperOrientation: 'portrait' | 'landscape';
+  marginMm: number;
+  customTitle: string;
+  customYearLabel: string;
+  showYearHeader: boolean;
+  showRoomHeader: boolean;
+  showTierHeader: boolean;
+  useLeadingZeroRoom: boolean;
+  zoomPct: number;
+}
+
+export const DEFAULT_PARTICIPANT_LIST_CONFIG: ParticipantListConfig = {
+  groupingMode: 'per_ruang_jenjang',
+  selectedRoom: '',
+  selectedTier: '',
+  selectedClass: '',
+  orderMode: 'no_peserta',
+  rowsPerPage: 'auto',
+  paperOrientation: 'portrait',
+  marginMm: 14,
+  customTitle: '',
+  customYearLabel: '',
+  showYearHeader: true,
+  showRoomHeader: true,
+  showTierHeader: true,
+  useLeadingZeroRoom: false,
+  zoomPct: 72,
 };
 
 export type StickerGroupingMode = 'tier_room' | 'class_room';

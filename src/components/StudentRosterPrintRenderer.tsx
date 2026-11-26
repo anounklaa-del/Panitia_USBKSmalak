@@ -17,12 +17,14 @@ interface StudentRosterPrintBlockProps {
   students: StudentRecord[];
   groupingMode: StickerGroupingMode;
   academicYear?: string;
+  semester?: 'Ganjil' | 'Genap';
 }
 
 export const StudentRosterPrintBlock: React.FC<StudentRosterPrintBlockProps> = ({
   students,
   groupingMode,
-  academicYear = '2025/2026',
+  academicYear = '2026/2027',
+  semester = 'Ganjil',
 }) => {
   const sorted = [...students].sort((a, b) => compareNumericStrings(a.no, b.no));
   const deskLookup = buildDeskAssignmentLookup(students, groupingMode);
@@ -53,7 +55,7 @@ export const StudentRosterPrintBlock: React.FC<StudentRosterPrintBlockProps> = (
                   SMA NEGERI 1 ALALAK — SISTEM MANAJEMEN PANITIA ULANGAN
                 </div>
                 <h1 className="text-[15px] font-extrabold text-[#0F172A]">
-                  DAFTAR PESERTA UJIAN SEMESTER GANJIL ({academicYear})
+                  DAFTAR PESERTA UJIAN SEMESTER {semester.toUpperCase()} ({academicYear})
                 </h1>
               </div>
             </div>

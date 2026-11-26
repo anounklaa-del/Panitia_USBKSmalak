@@ -28,6 +28,7 @@ export function FrontCardMarkup({
   qrSizeMm = 13.5,
   showDeskOnCard = true,
   deskLabel,
+  academicYear = '2026/2027',
   onClick,
   isSelected,
 }: {
@@ -43,6 +44,7 @@ export function FrontCardMarkup({
   qrSizeMm?: number;
   showDeskOnCard?: boolean;
   deskLabel?: string;
+  academicYear?: string;
   onClick?: () => void;
   isSelected?: boolean;
 }) {
@@ -177,7 +179,7 @@ export function FrontCardMarkup({
               SMAN 1 ALALAK
             </div>
             <div style={{ fontSize: qrInHeader ? '6.4pt' : '7pt', color: '#44546A', whiteSpace: 'nowrap' }}>
-              TAHUN AJARAN 2026-2027
+              TAHUN AJARAN {academicYear.replace(/\s*\/\s*/g, '-')}
             </div>
           </div>
           <img
@@ -767,6 +769,7 @@ export const SheetPagesBlock: React.FC<{
   deskLookup?: Record<string, string>;
   schedulesMap?: Record<string, ScheduleRow[]>;
   selectedStudentNo?: string;
+  academicYear?: string;
   onSelectStudent?: (s: StudentRecord) => void;
   isPrintDom?: boolean;
 }> = ({
@@ -777,6 +780,7 @@ export const SheetPagesBlock: React.FC<{
   deskLookup,
   schedulesMap,
   selectedStudentNo,
+  academicYear = '2026/2027',
   onSelectStudent,
   isPrintDom = false,
 }) => {
@@ -876,6 +880,7 @@ export const SheetPagesBlock: React.FC<{
                       qrSizeMm={config.qrSizeMm}
                       showDeskOnCard={config.showDeskOnCard}
                       deskLabel={deskLookup?.[st.no]}
+                      academicYear={academicYear}
                       isSelected={!isPrintDom && st.no === selectedStudentNo}
                       onClick={onSelectStudent ? () => onSelectStudent(st) : undefined}
                     />
@@ -922,6 +927,7 @@ export const SheetPagesBlock: React.FC<{
                         qrSizeMm={config.qrSizeMm}
                         showDeskOnCard={config.showDeskOnCard}
                         deskLabel={deskLookup?.[st.no]}
+                        academicYear={academicYear}
                         isSelected={!isPrintDom && st.no === selectedStudentNo}
                         onClick={onSelectStudent ? () => onSelectStudent(st) : undefined}
                       />

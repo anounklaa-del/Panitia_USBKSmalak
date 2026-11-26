@@ -44,6 +44,7 @@ import {
   type ExamOrderMode,
   type MainWorkspaceTab,
   type PaperPreset,
+  type ParticipantListConfig,
   type ParticipantNumberFormat,
   type PrepressConfig,
   type SchoolSettings,
@@ -77,6 +78,7 @@ export interface SystemBackupPayload {
   stickerConfig: StickerConfig;
   seatingConfig: SeatingConfig;
   attendanceConfig: AttendanceConfig;
+  participantListConfig?: ParticipantListConfig;
   beritaAcaraConfig: BeritaAcaraConfig;
   students: StudentRecord[];
   committeeMembers: CommitteeMember[];
@@ -95,6 +97,7 @@ interface SystemSettingsWorkspaceProps {
   stickerConfig: StickerConfig;
   seatingConfig: SeatingConfig;
   attendanceConfig: AttendanceConfig;
+  participantListConfig?: ParticipantListConfig;
   beritaAcaraConfig: BeritaAcaraConfig;
   students: StudentRecord[];
   committeeMembers: CommitteeMember[];
@@ -140,6 +143,7 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
   stickerConfig,
   seatingConfig,
   attendanceConfig,
+  participantListConfig,
   beritaAcaraConfig,
   students,
   committeeMembers,
@@ -336,6 +340,7 @@ export const SystemSettingsWorkspace: React.FC<SystemSettingsWorkspaceProps> = (
       stickerConfig,
       seatingConfig,
       attendanceConfig,
+      participantListConfig,
       beritaAcaraConfig,
       students,
       committeeMembers,

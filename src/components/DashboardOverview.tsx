@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   FileText,
   LayoutGrid,
+  ListOrdered,
   MapPin,
   Printer,
   Search,
@@ -56,6 +57,7 @@ interface DashboardOverviewProps {
   stickerConfig: StickerConfig;
   seatingConfig: SeatingConfig;
   attendanceConfig: AttendanceConfig;
+  semester?: 'Ganjil' | 'Genap';
   stats: {
     cardsPerSheet: number;
     cardSheets: number;
@@ -63,6 +65,7 @@ interface DashboardOverviewProps {
     stickerSheets: number;
     seatingPages: number;
     attendancePages: number;
+    participantListPages?: number;
     missingScheduleCount: number;
   };
   onNavigateTab: (tab: MainWorkspaceTab) => void;
@@ -98,6 +101,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   scheduleEntries,
   stickerConfig,
   attendanceConfig,
+  semester = 'Ganjil',
   stats,
   onNavigateTab,
   onQuickJumpRoom,
@@ -348,7 +352,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
             <div className="rounded-xl bg-gradient-to-b from-[#DCEBFF] to-[#CEE2FF] border border-[#BFDBFE] py-2.5 px-3 text-center">
               <div className="font-display font-bold text-[12.5px] text-[#1D4ED8]">
-                Ulangan Semester Ganjil
+                Ulangan Semester {semester}
               </div>
               <div className="font-display font-bold text-xs text-[#1E40AF] tabular-nums mt-0.5">
                 Tahun Pelajaran {attendanceConfig.academicYear || '2026/2027'}
@@ -787,6 +791,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   badgeBg: 'bg-[#10B981]',
                 },
                 {
+                  label: 'Daftar Nama Peserta',
+                  tab: 'participant_list' as MainWorkspaceTab,
+                  icon: <ListOrdered className="w-3.5 h-3.5 text-white" />,
+                  badgeBg: 'bg-[#0891B2]',
+                },
+                {
                   label: 'Berita Acara Ujian',
                   tab: 'berita_acara' as MainWorkspaceTab,
                   icon: <FileCheck2 className="w-3.5 h-3.5 text-white" />,
@@ -928,6 +938,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   title: `Rekap Kehadiran Peserta (${stats.attendancePages} Hal)`,
                   date: '23 Nov 2026',
                   tab: 'attendance' as MainWorkspaceTab,
+                },
+                {
+                  badge: 'LIST',
+                  badgeClass: 'bg-[#0891B2] text-white',
+                  title: `Daftar Nama Peserta Ruang (${stats.participantListPages ?? 10} Hal)`,
+                  date: '23 Nov 2026',
+                  tab: 'participant_list' as MainWorkspaceTab,
                 },
                 {
                   badge: 'PDF',

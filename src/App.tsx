@@ -32,6 +32,8 @@ import { ExamScheduleManager } from './components/ExamScheduleManager';
 import { LoginGate } from './components/LoginGate';
 import { Mockup3DViewer } from './components/Mockup3DViewer';
 import { SheetPagesBlock } from './components/PrintSheetRenderer';
+import { ParticipantListPagesBlock } from './components/ParticipantListRenderer';
+import { ParticipantListWorkspace } from './components/ParticipantListWorkspace';
 import { ProctorManager } from './components/ProctorManager';
 import {
   ProctorRosterPrintBlock,
@@ -83,6 +85,7 @@ import {
   computeStickerGeometry,
   DEFAULT_ATTENDANCE_CONFIG,
   DEFAULT_BERITA_ACARA_CONFIG,
+  DEFAULT_PARTICIPANT_LIST_CONFIG,
   DEFAULT_PREPRESS_CONFIG,
   DEFAULT_SCHOOL_SETTINGS,
   DEFAULT_SEATING_CONFIG,
@@ -95,6 +98,7 @@ import {
   type ImpositionMode,
   type MainWorkspaceTab,
   type PaperPreset,
+  type ParticipantListConfig,
   type PrepressConfig,
   type QrCornerPosition,
   type QrPayloadFormat,
@@ -126,6 +130,7 @@ import {
   getSortedRoomList,
   normalizeRoomLabel,
 } from './utils/deskStickerBuilder';
+import { buildParticipantListPages } from './utils/participantListBuilder';
 import { formatStudentQrPayload, getQrSymbolData } from './utils/qrGenerator';
 import {
   areMatricesEqual,
@@ -248,6 +253,15 @@ export default function App() {
     }
     return DEFAULT_ATTENDANCE_CONFIG;
   });
+  const [participantListConfig, setParticipantListConfig] = useState<ParticipantListConfig>(() => {
+    try {
+      const saved = localStorage.getItem('pas_participant_list_cfg_v1');
+      if (saved) return { ...DEFAULT_PARTICIPANT_LIST_CONFIG, ...JSON.parse(saved) };
+    } catch {
+      // ignore storage failure
+    }
+    return DEFAULT_PARTICIPANT_LIST_CONFIG;
+  });
   const [activeTab, setActiveTab] = useState<MainWorkspaceTab>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -263,10 +277,15 @@ export default function App() {
   const [stickerSheetIndex, setStickerSheetIndex] = useState<number>(0);
   const [seatingPageIndex, setSeatingPageIndex] = useState<number>(0);
   const [attendancePageIndex, setAttendancePageIndex] = useState<number>(0);
+  const [participantListPageIndex, setParticipantListPageIndex] = useState<number>(0);
+  const [participantListSearch, setParticipantListSearch] = useState<string>('');
   const [printScope, setPrintScope] = useState<'all' | 'current'>('all');
   const [stickerPrintScope, setStickerPrintScope] = useState<'all' | 'current'>('all');
   const [seatingPrintScope, setSeatingPrintScope] = useState<'all' | 'current'>('all');
   const [attendancePrintScope, setAttendancePrintScope] = useState<'all' | 'current'>('all');
+  const [participantListPrintScope, setParticipantListPrintScope] = useState<'all' | 'current'>(
+    'all',
+  );
   const [zipBusy, setZipBusy] = useState(false);
   const [scheduleEntries, setScheduleEntries] = useState<ExamScheduleEntry[]>(() =>
     loadScheduleEntries(),
@@ -339,9 +358,18 @@ export default function App() {
       stickerConfig,
       seatingConfig,
       attendanceConfig,
+      participantListConfig,
       beritaAcaraConfig,
     }),
-    [schoolSettings, config, stickerConfig, seatingConfig, attendanceConfig, beritaAcaraConfig],
+    [
+      schoolSettings,
+      config,
+      stickerConfig,
+      seatingConfig,
+      attendanceConfig,
+      participantListConfig,
+      beritaAcaraConfig,
+    ],
   );
 
   const latestCloudStateRef = useRef({
@@ -655,6 +683,10 @@ export default function App() {
                   ...DEFAULT_ATTENDANCE_CONFIG,
                   ...(d.attendanceConfig ?? {}),
                 };
+                const nextParticipantList: ParticipantListConfig = {
+                  ...DEFAULT_PARTICIPANT_LIST_CONFIG,
+                  ...(d.participantListConfig ?? {}),
+                };
                 const nextBa: BeritaAcaraConfig = {
                   ...DEFAULT_BERITA_ACARA_CONFIG,
                   ...(d.beritaAcaraConfig ?? {}),
@@ -666,6 +698,7 @@ export default function App() {
                   stickerConfig: nextSticker,
                   seatingConfig: nextSeating,
                   attendanceConfig: nextAttendance,
+                  participantListConfig: nextParticipantList,
                   beritaAcaraConfig: nextBa,
                 };
                 lastAppliedSettingsJsonRef.current = JSON.stringify(mergedBundle);
@@ -675,6 +708,7 @@ export default function App() {
                 setStickerConfig(nextSticker);
                 setSeatingConfig(nextSeating);
                 setAttendanceConfig(nextAttendance);
+                setParticipantListConfig(nextParticipantList);
                 setBeritaAcaraConfig(nextBa);
 
                 try {
@@ -683,6 +717,10 @@ export default function App() {
                   localStorage.setItem('pas_sticker_cfg_v2', JSON.stringify(nextSticker));
                   localStorage.setItem('pas_seating_cfg_v3', JSON.stringify(nextSeating));
                   localStorage.setItem('pas_attendance_cfg_v3', JSON.stringify(nextAttendance));
+                  localStorage.setItem(
+                    'pas_participant_list_cfg_v1',
+                    JSON.stringify(nextParticipantList),
+                  );
                   localStorage.setItem('pas_berita_acara_cfg_v2', JSON.stringify(nextBa));
                 } catch {
                   // ignore
@@ -791,6 +829,18 @@ export default function App() {
     });
   };
 
+  const updateParticipantListConfig = (patch: Partial<ParticipantListConfig>) => {
+    setParticipantListConfig((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        localStorage.setItem('pas_participant_list_cfg_v1', JSON.stringify(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
+  };
+
   const updateBeritaAcaraConfig = (patch: Partial<BeritaAcaraConfig>) => {
     setBeritaAcaraConfig((prev) => {
       const next = { ...prev, ...patch };
@@ -886,6 +936,9 @@ export default function App() {
     if (payload.attendanceConfig) {
       updateAttendanceConfig(payload.attendanceConfig);
     }
+    if (payload.participantListConfig) {
+      updateParticipantListConfig(payload.participantListConfig);
+    }
     if (payload.beritaAcaraConfig) {
       updateBeritaAcaraConfig(payload.beritaAcaraConfig);
     }
@@ -935,7 +988,16 @@ export default function App() {
     updateStickerConfig(DEFAULT_STICKER_CONFIG);
     updateSeatingConfig(DEFAULT_SEATING_CONFIG);
     updateAttendanceConfig(DEFAULT_ATTENDANCE_CONFIG);
+    updateParticipantListConfig(DEFAULT_PARTICIPANT_LIST_CONFIG);
     updateBeritaAcaraConfig(DEFAULT_BERITA_ACARA_CONFIG);
+  };
+
+  const handleGlobalAcademicYearChange = (year: string) => {
+    updateAttendanceConfig({ academicYear: year });
+    updateRulesBellConfig({
+      academicYear: year.replace('/', ' / '),
+      bellTitleLine2: `TAHUN PELAJARAN ${year}`,
+    });
   };
 
   const handleAddStudent = (record: StudentRecord) => {
@@ -1338,6 +1400,46 @@ export default function App() {
     [config, attendanceConfig.paperOrientation],
   );
 
+  const participantListResult = useMemo(
+    () =>
+      buildParticipantListPages(
+        students,
+        filteredStudents,
+        stickerConfig.groupingMode,
+        config,
+        participantListConfig,
+        cardFilterDesc,
+        participantListSearch,
+      ),
+    [
+      students,
+      filteredStudents,
+      stickerConfig.groupingMode,
+      config,
+      participantListConfig,
+      cardFilterDesc,
+      participantListSearch,
+    ],
+  );
+  const participantListPages = participantListResult.pages;
+  const safeParticipantListPageIdx = Math.min(
+    participantListPageIndex,
+    Math.max(0, participantListPages.length - 1),
+  );
+  const printParticipantListPages = useMemo(() => {
+    if (participantListPrintScope === 'current') {
+      return participantListPages[safeParticipantListPageIdx]
+        ? [participantListPages[safeParticipantListPageIdx]]
+        : [];
+    }
+    return participantListPages;
+  }, [participantListPages, participantListPrintScope, safeParticipantListPageIdx]);
+
+  const participantListDims = useMemo(
+    () => getSeatingPaperDimensions(config, participantListConfig.paperOrientation),
+    [config, participantListConfig.paperOrientation],
+  );
+
   const beritaAcaraRecords = useMemo(
     () =>
       buildBeritaAcaraRecords(
@@ -1409,11 +1511,13 @@ export default function App() {
         ? printSeatingPages.length
         : activeTab === 'attendance'
           ? printAttendancePages.length
-          : activeTab === 'berita_acara'
-            ? beritaAcaraPrintPages.length
-            : activeTab === 'rules_bell'
-              ? rulesBellPrintDocs.length
-              : totalCardPrintPages;
+          : activeTab === 'participant_list'
+            ? printParticipantListPages.length
+            : activeTab === 'berita_acara'
+              ? beritaAcaraPrintPages.length
+              : activeTab === 'rules_bell'
+                ? rulesBellPrintDocs.length
+                : totalCardPrintPages;
 
   const missingScheduleCount = useMemo(
     () =>
@@ -1436,14 +1540,17 @@ export default function App() {
     stickerPrintScope,
     seatingPrintScope,
     attendancePrintScope,
+    participantListPrintScope,
     safeSheetIdx,
     safeStickerSheetIdx,
     safeSeatingPageIdx,
     safeAttendancePageIdx,
+    safeParticipantListPageIdx,
     filteredStudents,
     filteredStickers,
     seatingPages,
     attendancePages,
+    participantListPages,
     schedulePrintPayload,
     proctorPrintPayload,
     beritaAcaraPrintRecords,
@@ -1457,6 +1564,7 @@ export default function App() {
     stickerConfig,
     seatingConfig,
     attendanceConfig,
+    participantListConfig,
   ]);
 
   const handleDirectPrint = (scopeOverride?: 'all' | 'current') => {
@@ -1494,6 +1602,16 @@ export default function App() {
     if (targetScope !== attendancePrintScope) {
       pendingPrintRef.current = true;
       setAttendancePrintScope(targetScope);
+    } else {
+      window.print();
+    }
+  };
+
+  const handleParticipantListPrint = (scopeOverride?: 'all' | 'current') => {
+    const targetScope = scopeOverride ?? participantListPrintScope;
+    if (targetScope !== participantListPrintScope) {
+      pendingPrintRef.current = true;
+      setParticipantListPrintScope(targetScope);
     } else {
       window.print();
     }
@@ -1700,27 +1818,31 @@ export default function App() {
       ? seatingDims.paperW
       : activeTab === 'attendance'
         ? attendanceDims.paperW
-        : activeTab === 'berita_acara'
-          ? beritaAcaraDims.paperW
-          : activeTab === 'students' ||
-              activeTab === 'schedule' ||
-              activeTab === 'proctor' ||
-              activeTab === 'rules_bell'
-            ? 210
-            : geo.paperW;
+        : activeTab === 'participant_list'
+          ? participantListDims.paperW
+          : activeTab === 'berita_acara'
+            ? beritaAcaraDims.paperW
+            : activeTab === 'students' ||
+                activeTab === 'schedule' ||
+                activeTab === 'proctor' ||
+                activeTab === 'rules_bell'
+              ? 210
+              : geo.paperW;
   const activePageH =
     activeTab === 'seating'
       ? seatingDims.paperH
       : activeTab === 'attendance'
         ? attendanceDims.paperH
-        : activeTab === 'berita_acara'
-          ? beritaAcaraDims.paperH
-          : activeTab === 'students' ||
-              activeTab === 'schedule' ||
-              activeTab === 'proctor' ||
-              activeTab === 'rules_bell'
-            ? 297
-            : geo.paperH;
+        : activeTab === 'participant_list'
+          ? participantListDims.paperH
+          : activeTab === 'berita_acara'
+            ? beritaAcaraDims.paperH
+            : activeTab === 'students' ||
+                activeTab === 'schedule' ||
+                activeTab === 'proctor' ||
+                activeTab === 'rules_bell'
+              ? 297
+              : geo.paperH;
 
   if (cloudFatalError) {
     throw cloudFatalError;
@@ -1768,10 +1890,11 @@ export default function App() {
               stickers: filteredStickers.length,
               seatingPages: seatingPages.length,
               attendancePages: attendancePages.length,
+              participantListPages: participantListPages.length,
               beritaAcara: beritaAcaraRecords.length,
             }}
             academicYear={attendanceConfig.academicYear || '2026/2027'}
-            onAcademicYearChange={(year) => updateAttendanceConfig({ academicYear: year })}
+            onAcademicYearChange={handleGlobalAcademicYearChange}
             paper={config.paper}
             dpi={config.dpi}
             hasActiveCardFilter={hasActiveCardFilter}
@@ -1876,11 +1999,13 @@ export default function App() {
                           ? handleSeatingPrint()
                           : activeTab === 'attendance'
                             ? handleAttendancePrint()
-                            : activeTab === 'berita_acara'
-                              ? handleBeritaAcaraPrint(beritaAcaraFilteredRecords)
-                              : activeTab === 'rules_bell'
-                                ? handleRulesBellPrint('all')
-                                : handleDirectPrint()
+                            : activeTab === 'participant_list'
+                              ? handleParticipantListPrint('all')
+                              : activeTab === 'berita_acara'
+                                ? handleBeritaAcaraPrint(beritaAcaraFilteredRecords)
+                                : activeTab === 'rules_bell'
+                                  ? handleRulesBellPrint('all')
+                                  : handleDirectPrint()
                     }
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#FACC15] hover:bg-[#EAB308] text-[#092252] text-xs font-bold shadow-xs hover:shadow transition-all duration-150 active:scale-[0.98] whitespace-nowrap shrink-0"
                     title={
@@ -1890,11 +2015,13 @@ export default function App() {
                           ? `Cetak langsung ${totalPrintPages} halaman Denah Tempat Duduk`
                           : activeTab === 'attendance'
                             ? `Cetak langsung ${totalPrintPages} halaman Daftar Hadir Peserta`
-                            : activeTab === 'berita_acara'
-                              ? `Cetak langsung ${totalPrintPages} halaman Berita Acara`
-                              : activeTab === 'rules_bell'
-                                ? `Cetak langsung ${totalPrintPages} halaman Kode Lonceng & Tata Tertib`
-                                : `Cetak langsung ${totalCardPrintPages} halaman Kartu PAS`
+                            : activeTab === 'participant_list'
+                              ? `Cetak langsung ${totalPrintPages} halaman Daftar Nama Peserta`
+                              : activeTab === 'berita_acara'
+                                ? `Cetak langsung ${totalPrintPages} halaman Berita Acara`
+                                : activeTab === 'rules_bell'
+                                  ? `Cetak langsung ${totalPrintPages} halaman Kode Lonceng & Tata Tertib`
+                                  : `Cetak langsung ${totalCardPrintPages} halaman Kartu PAS`
                     }
                   >
                     <Printer className="w-3.5 h-3.5" />
@@ -1904,11 +2031,13 @@ export default function App() {
                         ? `Cetak Denah (${totalPrintPages})`
                         : activeTab === 'attendance'
                           ? `Cetak Absen (${totalPrintPages})`
-                          : activeTab === 'berita_acara'
-                            ? `Cetak BA (${totalPrintPages})`
-                            : activeTab === 'rules_bell'
-                              ? `Cetak Dokumen (${totalPrintPages})`
-                              : `Cetak Kartu (${totalCardPrintPages})`}
+                          : activeTab === 'participant_list'
+                            ? `Cetak Daftar (${totalPrintPages})`
+                            : activeTab === 'berita_acara'
+                              ? `Cetak BA (${totalPrintPages})`
+                              : activeTab === 'rules_bell'
+                                ? `Cetak Dokumen (${totalPrintPages})`
+                                : `Cetak Kartu (${totalCardPrintPages})`}
                   </button>
                 )}
 
@@ -2629,6 +2758,7 @@ export default function App() {
                   stickerConfig={stickerConfig}
                   seatingConfig={seatingConfig}
                   attendanceConfig={attendanceConfig}
+                  semester={schoolSettings.semester}
                   stats={{
                     cardsPerSheet: geo.cardsPerSheet,
                     cardSheets: totalSheets,
@@ -2636,6 +2766,7 @@ export default function App() {
                     stickerSheets: totalStickerSheets,
                     seatingPages: seatingPages.length,
                     attendancePages: attendancePages.length,
+                    participantListPages: participantListPages.length,
                     missingScheduleCount,
                   }}
                   onNavigateTab={handleSelectWorkspaceTab}
@@ -2695,6 +2826,7 @@ export default function App() {
                       selectedStudent={selectedStudent}
                       deskLookup={deskLookup}
                       schedulesMap={schedulesByClass}
+                      academicYear={attendanceConfig.academicYear || '2026/2027'}
                       sheetIndex={safeSheetIdx}
                       onSheetIndexChange={setSheetIndex}
                       onSelectStudent={(s) => setSelectedStudentNo(s.no)}
@@ -2768,6 +2900,25 @@ export default function App() {
                 onPrintAttendance={handleAttendancePrint}
                 settingsOpen={settingsOpen}
                 onCloseSettings={() => setSettingsOpen(false)}
+              />
+            )}
+            {activeTab === 'participant_list' && (
+              <ParticipantListWorkspace
+                students={students}
+                filteredCardStudents={filteredStudents}
+                cardFilterDesc={cardFilterDesc}
+                groupingMode={stickerConfig.groupingMode}
+                paperConfig={config}
+                listConfig={participantListConfig}
+                academicYear={attendanceConfig.academicYear || '2026/2027'}
+                semester={schoolSettings.semester}
+                pageIndex={safeParticipantListPageIdx}
+                searchQuery={participantListSearch}
+                onSearchQueryChange={setParticipantListSearch}
+                onPageIndexChange={setParticipantListPageIndex}
+                onPaperConfigChange={updateConfig}
+                onListConfigChange={updateParticipantListConfig}
+                onPrintList={handleParticipantListPrint}
               />
             )}
             {activeTab === 'berita_acara' && (
@@ -2865,6 +3016,7 @@ export default function App() {
                 stickerConfig={stickerConfig}
                 seatingConfig={seatingConfig}
                 attendanceConfig={attendanceConfig}
+                participantListConfig={participantListConfig}
                 beritaAcaraConfig={beritaAcaraConfig}
                 students={students}
                 committeeMembers={committeeMembers}
@@ -2878,7 +3030,7 @@ export default function App() {
                 cloudSyncInfo={{ lastSyncedAt, syncing: cloudSyncing }}
                 onForceCloudSync={handleForceCloudSync}
                 onUpdateSchoolSettings={updateSchoolSettings}
-                onAcademicYearChange={(year) => updateAttendanceConfig({ academicYear: year })}
+                onAcademicYearChange={handleGlobalAcademicYearChange}
                 onUpdatePaperConfig={updateConfig}
                 onUpdateStickerConfig={updateStickerConfig}
                 onUpdateBaConfig={updateBeritaAcaraConfig}
@@ -2970,6 +3122,7 @@ export default function App() {
             activeTab !== 'sticker' &&
             activeTab !== 'seating' &&
             activeTab !== 'attendance' &&
+            activeTab !== 'participant_list' &&
             activeTab !== 'berita_acara' &&
             activeTab !== 'rules_bell' &&
             activeTab !== 'students' &&
@@ -3008,75 +3161,88 @@ export default function App() {
                     forPrint
                   />
                 )
-              : activeTab === 'berita_acara'
-                ? beritaAcaraPrintPages.length > 0 && (
-                    <BeritaAcaraPagesBlock
-                      pages={beritaAcaraPrintPages}
+              : activeTab === 'participant_list'
+                ? printParticipantListPages.length > 0 && (
+                    <ParticipantListPagesBlock
+                      pages={printParticipantListPages}
                       paperConfig={config}
-                      baConfig={beritaAcaraConfig}
+                      listConfig={participantListConfig}
                       academicYear={attendanceConfig.academicYear || '2026/2027'}
+                      semester={schoolSettings.semester}
                       forPrint
                     />
                   )
-                : activeTab === 'rules_bell'
-                  ? (
-                      <RulesAndBellPagesBlock
-                        cfg={rulesBellConfig}
-                        docIds={rulesBellPrintDocs}
+                : activeTab === 'berita_acara'
+                  ? beritaAcaraPrintPages.length > 0 && (
+                      <BeritaAcaraPagesBlock
+                        pages={beritaAcaraPrintPages}
+                        paperConfig={config}
+                        baConfig={beritaAcaraConfig}
+                        academicYear={attendanceConfig.academicYear || '2026/2027'}
                         forPrint
                       />
                     )
-                  : activeTab === 'students'
-                  ? students.length > 0 && (
-                      <StudentRosterPrintBlock
-                        students={students}
-                        groupingMode={stickerConfig.groupingMode}
-                        academicYear={attendanceConfig.academicYear || '2026/2027'}
-                      />
-                    )
-                  : activeTab === 'schedule'
+                  : activeTab === 'rules_bell'
                     ? (
-                      <ScheduleRosterPrintBlock
-                        mode={schedulePrintPayload?.mode ?? 'combined'}
-                        combinedRows={schedulePrintPayload?.combinedRows ?? combinedScheduleRows}
-                        sessionRows={schedulePrintPayload?.sessionRows ?? scheduleEntries}
-                        selectedClass={schedulePrintPayload?.selectedClass}
-                        filterSummary={schedulePrintPayload?.filterSummary}
-                        academicYear={attendanceConfig.academicYear || '2026/2027'}
-                        totalStudents={students.length}
-                        totalRooms={roomList.length}
-                        chairName={activeChair?.nama}
-                        chairNip={activeChair?.nip}
-                      />
-                    )
-                    : activeTab === 'proctor'
-                      ? (
-                        <ProctorRosterPrintBlock
-                          mode={proctorPrintPayload?.mode ?? 'both'}
-                          proctors={
-                            proctorPrintPayload?.proctors ??
-                            [...proctors].sort((a, b) => a.code - b.code)
-                          }
-                          matrix={proctorPrintPayload?.matrix ?? proctorMatrix}
-                          dutiesByCode={dutiesByCode}
-                          scheduleEntries={scheduleEntries}
+                        <RulesAndBellPagesBlock
+                          cfg={rulesBellConfig}
+                          docIds={rulesBellPrintDocs}
+                          forPrint
+                        />
+                      )
+                    : activeTab === 'students'
+                    ? students.length > 0 && (
+                        <StudentRosterPrintBlock
+                          students={students}
+                          groupingMode={stickerConfig.groupingMode}
                           academicYear={attendanceConfig.academicYear || '2026/2027'}
-                          filterSummary={proctorPrintPayload?.filterSummary}
+                          semester={schoolSettings.semester}
+                        />
+                      )
+                    : activeTab === 'schedule'
+                      ? (
+                        <ScheduleRosterPrintBlock
+                          mode={schedulePrintPayload?.mode ?? 'combined'}
+                          combinedRows={schedulePrintPayload?.combinedRows ?? combinedScheduleRows}
+                          sessionRows={schedulePrintPayload?.sessionRows ?? scheduleEntries}
+                          selectedClass={schedulePrintPayload?.selectedClass}
+                          filterSummary={schedulePrintPayload?.filterSummary}
+                          academicYear={attendanceConfig.academicYear || '2026/2027'}
+                          totalStudents={students.length}
+                          totalRooms={roomList.length}
                           chairName={activeChair?.nama}
                           chairNip={activeChair?.nip}
                         />
                       )
-                      : filteredStudents.length > 0 && (
-                        <SheetPagesBlock
-                          students={filteredStudents}
-                          config={config}
-                          geo={geo}
-                          sheetIndices={printSheetIndices}
-                          deskLookup={deskLookup}
-                          schedulesMap={schedulesByClass}
-                          isPrintDom
-                        />
-                      )}
+                      : activeTab === 'proctor'
+                        ? (
+                          <ProctorRosterPrintBlock
+                            mode={proctorPrintPayload?.mode ?? 'both'}
+                            proctors={
+                              proctorPrintPayload?.proctors ??
+                              [...proctors].sort((a, b) => a.code - b.code)
+                            }
+                            matrix={proctorPrintPayload?.matrix ?? proctorMatrix}
+                            dutiesByCode={dutiesByCode}
+                            scheduleEntries={scheduleEntries}
+                            academicYear={attendanceConfig.academicYear || '2026/2027'}
+                            filterSummary={proctorPrintPayload?.filterSummary}
+                            chairName={activeChair?.nama}
+                            chairNip={activeChair?.nip}
+                          />
+                        )
+                        : filteredStudents.length > 0 && (
+                          <SheetPagesBlock
+                            students={filteredStudents}
+                            config={config}
+                            geo={geo}
+                            sheetIndices={printSheetIndices}
+                            deskLookup={deskLookup}
+                            schedulesMap={schedulesByClass}
+                            academicYear={attendanceConfig.academicYear || '2026/2027'}
+                            isPrintDom
+                          />
+                        )}
       </div>
     </>
   );
