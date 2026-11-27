@@ -1,6 +1,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -737,13 +738,21 @@ export function saveCloudDataset(
 
       if (existingSnap.exists()) {
         try {
-          await updateDoc(ref, {
+          const existingData = existingSnap.data();
+          const updatePayload: Record<string, unknown> = {
             datasetType: datasetId,
             payload: sanitizedPayload,
             itemCount: clampedCount,
             updatedByUsername: safeActor,
             updatedAt: serverTimestamp(),
-          });
+          };
+          if ('updatedByEmail' in existingData) {
+            updatePayload.updatedByEmail = deleteField();
+          }
+          if ('updatedByUid' in existingData) {
+            updatePayload.updatedByUid = deleteField();
+          }
+          await updateDoc(ref, updatePayload);
         } catch (err) {
           handleFirestoreError(err, OperationType.UPDATE, path, safeActor);
         }

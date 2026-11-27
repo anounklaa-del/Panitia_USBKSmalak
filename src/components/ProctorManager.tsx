@@ -43,7 +43,6 @@ import type { MainWorkspaceTab } from '../types/prepress';
 import { compareNumericStrings, normalizeRoomLabel } from '../utils/deskStickerBuilder';
 import {
   areMatricesEqual,
-  computeSessionRoomActiveFlags,
   describeMatrixSession,
   getProctorDutyList,
   matchSubjectsForSlot,
@@ -381,7 +380,19 @@ export const ProctorManager: React.FC<ProctorManagerProps> = ({
           if (c.trim()) activeClasses.add(c.trim());
         }
       }
-      return computeSessionRoomActiveFlags(activeClasses, roomClassesMap);
+      const flags: boolean[] = [];
+      for (let r = 1; r <= 10; r++) {
+        const classesInRoom = roomClassesMap.get(r) ?? new Set();
+        let hasExam = false;
+        for (const cls of classesInRoom) {
+          if (activeClasses.has(cls)) {
+            hasExam = true;
+            break;
+          }
+        }
+        flags.push(hasExam);
+      }
+      return flags;
     };
   }, [scheduleEntries, roomClassesMap]);
 

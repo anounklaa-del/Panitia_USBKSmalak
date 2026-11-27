@@ -240,52 +240,12 @@ function deriveJamKe(startMinutes: number, daySlotIdx: number, isFriday: boolean
 }
 
 /**
- * Determines which rooms (1..10) have active exams during a slot.
- * Specifically keeps Ruang 09 empty (null) on Grade-XI-only sessions where XI 6
- * has no exam (e.g. Selasa, 8 Des 2026 jam 11.45 - 12.45).
- */
-export function computeSessionRoomActiveFlags(
-  activeClasses: Set<string>,
-  roomToClasses: Map<number, Set<string>>,
-): boolean[] {
-  let hasX = false;
-  let hasXI = false;
-  let hasXII = false;
-  for (const cls of activeClasses) {
-    const tier = extractClassTier(cls);
-    if (tier === 'X') hasX = true;
-    else if (tier === 'XI') hasXI = true;
-    else if (tier === 'XII') hasXII = true;
-  }
-
-  const xiOnlyWithoutXI6 = hasXI && !hasX && !hasXII && !activeClasses.has('XI 6');
-
-  const flags: boolean[] = [];
-  for (let r = 1; r <= 10; r++) {
-    if (xiOnlyWithoutXI6 && r === 9) {
-      flags.push(false);
-      continue;
-    }
-    const classesInRoom = roomToClasses.get(r) ?? new Set();
-    let hasExam = false;
-    for (const cls of classesInRoom) {
-      if (activeClasses.has(cls)) {
-        hasExam = true;
-        break;
-      }
-    }
-    flags.push(hasExam);
-  }
-  return flags;
-}
-
-/**
  * Builds a proctor duty matrix strictly aligned with active ExamScheduleEntry slots
  * and actual StudentRecord room occupancy across Ruang 01..10.
  *
  * - Only time slots present in active `scheduleEntries` appear as rows.
  * - A room cell (`1..10`) is `null` (black block) whenever no student in that room
- *   has an active exam at that date & time (or Ruang 09 when XI 6 has no exam).
+ *   has an active exam at that date & time.
  * - Preserves valid manual room assignments from `preserveFromMatrix` when still
  *   active and conflict-free within the same session; fills remaining active rooms
  *   sequentially across `Aktif` proctors without double-booking in the same time slot.
@@ -385,7 +345,18 @@ export function buildScheduleSyncedProctorMatrix(
     const usedInRow = new Set<number>();
 
     // Determine which rooms have active classes in this slot
-    const roomHasExam = computeSessionRoomActiveFlags(slot.classes, roomToClasses);
+    const roomHasExam: boolean[] = [];
+    for (let r = 1; r <= 10; r++) {
+      const classesInRoom = roomToClasses.get(r) ?? new Set();
+      let hasExam = false;
+      for (const cls of classesInRoom) {
+        if (slot.classes.has(cls)) {
+          hasExam = true;
+          break;
+        }
+      }
+      roomHasExam.push(hasExam);
+    }
 
     // Pass 1: Keep valid non-conflicting existing assignments for active rooms
     if (existing) {
@@ -437,72 +408,6 @@ export function buildScheduleSyncedProctorMatrix(
       rooms,
     };
   });
-}
-
-/**
- * Automatically migrates cached or cloud legacy proctor matrices that still have:
- * 1) Non-null Ruang 09 on Selasa, 8 Des 2026 jam 11.45-12.45 when XI 6 has no exam, or
- * 2) The legacy 20 -> 31 rotation gap between Rabu 2 Des 13.15 and Kamis 3 Des 08.00.
- */
-export function migrateLegacyProctorMatrix(
-  matrix: ProctorMatrixSession[],
-  scheduleEntries: ExamScheduleEntry[],
-  students: StudentRecord[],
-  proctors: ProctorRecord[],
-): { matrix: ProctorMatrixSession[]; changed: boolean } {
-  if (matrix.length === 0) {
-    return { matrix, changed: false };
-  }
-
-  const ordered = sortAndRenumberProctorMatrix(matrix);
-  const selasa8Slot = ordered.find(
-    (s) =>
-      toIsoDateKey(s.date) === '2026-12-08' &&
-      Math.abs(parseStartMinutes(s.time) - (11 * 60 + 45)) <= 15,
-  );
-  const hasXi6ExamOnSelasa8 = scheduleEntries.some(
-    (e) =>
-      e.status === 'Aktif' &&
-      toIsoDateKey(e.date) === '2026-12-08' &&
-      Math.abs(parseStartMinutes(e.time) - (11 * 60 + 45)) <= 15 &&
-      e.classes.some((c) => c.trim() === 'XI 6'),
-  );
-  const hasLegacySelasa8Room9 =
-    Boolean(selasa8Slot) && !hasXi6ExamOnSelasa8 && selasa8Slot?.rooms[8] !== null;
-
-  const rabuLast = ordered.find(
-    (s) =>
-      toIsoDateKey(s.date) === '2026-12-02' &&
-      Math.abs(parseStartMinutes(s.time) - (13 * 60 + 15)) <= 15,
-  );
-  const kamisFirst = ordered.find(
-    (s) =>
-      toIsoDateKey(s.date) === '2026-12-03' &&
-      Math.abs(parseStartMinutes(s.time) - 8 * 60) <= 15,
-  );
-  const hasLegacyBtaGap =
-    Boolean(rabuLast && kamisFirst) &&
-    rabuLast?.rooms[9] === 20 &&
-    kamisFirst?.rooms[0] === 31;
-
-  if (!hasLegacySelasa8Room9 && !hasLegacyBtaGap) {
-    const synced = buildScheduleSyncedProctorMatrix(
-      scheduleEntries,
-      students,
-      proctors,
-      ordered,
-    );
-    return {
-      matrix: synced,
-      changed: !areMatricesEqual(matrix, synced),
-    };
-  }
-
-  const rebuilt = buildScheduleSyncedProctorMatrix(scheduleEntries, students, proctors);
-  return {
-    matrix: rebuilt,
-    changed: !areMatricesEqual(matrix, rebuilt),
-  };
 }
 
 /**

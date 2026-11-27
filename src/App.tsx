@@ -138,7 +138,6 @@ import {
   getProctorDutyList,
   loadProctorMatrix,
   loadProctors,
-  migrateLegacyProctorMatrix,
   resetProctorMatrixToDefault,
   resetProctorsToDefault,
   saveProctorMatrix,
@@ -301,15 +300,14 @@ export default function App() {
     filterSummary?: string;
   } | null>(null);
   const [proctors, setProctors] = useState<ProctorRecord[]>(() => loadProctors());
-  const [proctorMatrix, setProctorMatrix] = useState<ProctorMatrixSession[]>(() => {
-    const { matrix: migrated } = migrateLegacyProctorMatrix(
-      loadProctorMatrix(),
+  const [proctorMatrix, setProctorMatrix] = useState<ProctorMatrixSession[]>(() =>
+    buildScheduleSyncedProctorMatrix(
       scheduleEntries,
       students,
       proctors,
-    );
-    return migrated;
-  });
+      loadProctorMatrix(),
+    ),
+  );
   const [proctorPrintPayload, setProctorPrintPayload] = useState<{
     mode: ProctorPrintMode;
     proctors: ProctorRecord[];
@@ -512,6 +510,8 @@ export default function App() {
           second: '2-digit',
         }).format(new Date()),
       );
+    } catch (err) {
+      setCloudFatalError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       setCloudSyncing(false);
     }
@@ -643,16 +643,16 @@ export default function App() {
             case 'proctor_matrix': {
               if (Array.isArray(payload.items)) {
                 const incomingMatrix = payload.items as ProctorMatrixSession[];
-                const { matrix: syncedMatrix, changed } = migrateLegacyProctorMatrix(
-                  incomingMatrix,
+                const syncedMatrix = buildScheduleSyncedProctorMatrix(
                   latestCloudStateRef.current.scheduleEntries,
                   latestCloudStateRef.current.students,
                   latestCloudStateRef.current.proctors,
+                  incomingMatrix,
                 );
                 lastAppliedMatrixJsonRef.current = JSON.stringify(syncedMatrix);
                 setProctorMatrix(syncedMatrix);
                 saveProctorMatrix(syncedMatrix);
-                if (changed) {
+                if (!areMatricesEqual(incomingMatrix, syncedMatrix)) {
                   const items = syncedMatrix.slice(0, 2000);
                   void pushDatasetToCloud('proctor_matrix', { items }, items.length);
                 }
